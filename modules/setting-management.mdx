@@ -1,0 +1,75 @@
+---
+title: "Setting Management: Persistent Settings by Global, Tenant or User"
+sidebarTitle: "Setting Management"
+description: "Persistent value-provider-keyed storage for ABP settings, plus the ISettingManager admin API and configuration/default fallback chain."
+---
+
+`Volo.Abp.Settings` defines the in-memory setting system (`ISettingProvider`, `ISettingDefinitionProvider`). The Setting Management module adds the **persistence layer and admin API**: stored `Setting` rows, value providers for global / tenant / user / configuration / default scopes, and an `ISettingManager` that the management UI calls.
+
+Source under `/home/daytona/repos/abpframework/abp/modules/setting-management/src/`:
+
+| Project | Purpose |
+| --- | --- |
+| `Volo.Abp.SettingManagement.Domain.Shared` | Consts |
+| `Volo.Abp.SettingManagement.Domain` | `Setting` aggregate + providers + manager |
+| `Volo.Abp.SettingManagement.Application(.Contracts)` | `ISettingAppService` + DTOs |
+| `Volo.Abp.SettingManagement.HttpApi(.Client)` | REST controllers + proxies |
+| `Volo.Abp.SettingManagement.EntityFrameworkCore` / `.MongoDB` | Persistence |
+| `Volo.Abp.SettingManagement.Web` / `.Blazor*` | Settings page UI |
+| `Volo.Abp.SettingManagement.Installer` | CLI installer payload |
+
+## Aggregate
+
+`Volo.Abp.SettingManagement.Domain/Volo/Abp/SettingManagement/Setting.cs`:
+
+```csharp
+public class Setting : Entity<Guid>, IAggregateRoot<Guid>
+{
+    public virtual string Name         { get; protected set; }
+    public virtual string Value        { get; internal  set; }
+    public virtual string ProviderName { get; protected set; }   // "G" | "T" | "U" | null
+    public virtual string ProviderKey  { get; protected set; }   // null | tenantId | userId
+}
+```
+
+A row exists only when somebody has overridden the default. Reads always fall back through the provider chain — defaults come from the in-memory `ISettingDefinitionManager`, never from a row.
+
+## Stores and providers
+
+| Type | Notes |
+| --- | --- |
+| `ISettingManagementStore` / `SettingManagementStore` | Get / list / set / delete `Setting` rows; backed by `ISettingRepository` and `SettingCacheItem`. |
+| `SettingStore` | Adapts the store to `ISettingStore` consumed by `Volo.Abp.Settings`. |
+| `DefaultValueSettingManagementProvider` | Provider `"D"` — returns the definition's `DefaultValue`. |
+| `ConfigurationSettingManagementProvider` | `"C"` — reads `IConfiguration`. |
+| `GlobalSettingManagementProvider` | `"G"` — global override, key is `null`. |
+| `TenantSettingManagementProvider` | `"T"` — keyed on `TenantId`. |
+| `UserSettingManagementProvider` | `"U"` — keyed on user id. |
+
+Resolution order is configured by `SettingManagementOptions.Providers`; the framework walks them top-down and returns the first non-null value. `SettingManagerExtensions` (`*SettingManagerExtensions.cs`) give typed helpers like `SetForUserAsync`, `SetForTenantAsync`, `SetGlobalAsync`.
+
+## `ISettingManager`
+
+`ISettingManager.cs`:
+
+```csharp
+public interface ISettingManager
+{
+    Task<string>            GetOrNullAsync(string name, string providerName, string providerKey, bool fallback = true);
+    Task<List<SettingValue>> GetAllAsync (string providerName, string providerKey, bool fallback = true);
+    Task                    SetAsync     (string name, string value, string providerName, string providerKey, bool forceToSet = false);
+    Task                    DeleteAsync  (string providerName, string providerKey);
+}
+```
+
+With `fallback = true` the manager returns the value resolved through the chain; with `fallback = false` it returns only the explicit row for `(providerName, providerKey)`. `SetAsync` skips writing if the new value equals the inherited one (unless `forceToSet = true`) — that avoids polluting the DB with redundant overrides.
+
+## Dynamic definitions
+
+The module mirrors [Permission Management](/modules/permission-management) and [Feature Management](/modules/feature-management): `StaticSettingSaver` writes statically declared settings into `SettingDefinitionRecord` rows on startup, and `DynamicSettingDefinitionStore` reads them back so all microservices share the same catalog. Updates trigger `SettingCacheItemInvalidator` to fan out a distributed-cache invalidation.
+
+## Related
+
+- [Tenant Management](/modules/tenant-management) — supplies the tenant id used as a `ProviderKey`.
+- [Identity](/modules/identity) — supplies the user id used by the `"U"` provider.
+- [Account](/modules/account) — registers Account-specific settings via `AccountSettingDefinitionProvider`.

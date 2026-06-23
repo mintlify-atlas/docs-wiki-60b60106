@@ -1,0 +1,73 @@
+---
+title: "SMS Sending via ISmsSender Across Providers"
+sidebarTitle: "SMS"
+description: "Single ISmsSender abstraction with a null logger default and ready-made Aliyun and Tencent Cloud provider modules for outbound text messages."
+---
+
+ABP exposes SMS sending behind a single interface — `ISmsSender` — that callers depend on instead of vendor-specific SDKs. Provider packages register their implementation with `ReplaceServices = true` so swapping vendors is a module-reference change.
+
+## ISmsSender and SmsMessage
+
+```csharp framework/src/Volo.Abp.Sms/Volo/Abp/Sms/ISmsSender.cs
+public interface ISmsSender
+{
+    Task SendAsync(SmsMessage smsMessage);
+}
+```
+
+`SmsMessage` carries `PhoneNumber`, `Text`, and a free-form `Properties` dictionary that providers use for template ids, sender ids, region codes, etc.
+
+```csharp framework/src/Volo.Abp.Sms/Volo/Abp/Sms/SmsMessage.cs
+public SmsMessage([NotNull] string phoneNumber, [NotNull] string text)
+{
+    PhoneNumber = Check.NotNullOrWhiteSpace(phoneNumber, nameof(phoneNumber));
+    Text = Check.NotNullOrWhiteSpace(text, nameof(text));
+    Properties = new Dictionary<string, object>();
+}
+```
+
+## Null fallback
+
+If you reference only `Volo.Abp.Sms`, the registered sender is `NullSmsSender` — it logs a warning so misconfiguration is loud:
+
+```csharp framework/src/Volo.Abp.Sms/Volo/Abp/Sms/NullSmsSender.cs
+[Dependency(TryRegister = true)]
+public class NullSmsSender : ISmsSender, ISingletonDependency
+{
+    public Task SendAsync(SmsMessage smsMessage)
+    {
+        Logger.LogWarning($"SMS Sending was not implemented! Using {nameof(NullSmsSender)}:");
+        // logs phone + text and returns Task.CompletedTask
+    }
+}
+```
+
+## Aliyun provider
+
+`Volo.Abp.Sms.Aliyun` registers `AliyunSmsSender` with options under `AbpAliyunSmsOptions`:
+
+```csharp framework/src/Volo.Abp.Sms.Aliyun/Volo/Abp/Sms/Aliyun/AbpAliyunSmsOptions.cs
+public string AccessKeySecret { get; set; } = default!;
+public string AccessKeyId { get; set; } = default!;
+public string EndPoint { get; set; } = default!;
+```
+
+## Tencent Cloud provider
+
+`Volo.Abp.Sms.TencentCloud` registers `TencentCloudSmsSender` with `AbpTencentCloudSmsOptions`:
+
+```csharp framework/src/Volo.Abp.Sms.TencentCloud/Volo/Abp/Sms/TencentCloud/AbpTencentCloudSmsOptions.cs
+public string SmsSdkAppId { get; set; } = default!;
+public string SecretKey  { get; set; } = default!;
+public string SecretId  { get; set; } = default!;
+public string Endpoint  { get; set; } = "sms.tencentcloudapi.com";
+public string Region  { get; set; } = "ap-guangzhou";
+```
+
+`TencentCloudSmsProperties.cs` defines well-known keys (template id, sign name) that callers stash in `SmsMessage.Properties` to be picked up by the sender.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Emailing" icon="envelope" href="/framework/infra/emailing" />
+</CardGroup>

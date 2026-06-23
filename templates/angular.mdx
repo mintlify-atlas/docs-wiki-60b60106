@@ -1,0 +1,89 @@
+---
+title: "Angular Templates: SPA Workspace for App and Module Templates"
+sidebarTitle: "Angular"
+description: "templates/app/angular ships a stand-alone Angular SPA for the layered app template; templates/module/angular ships a publishable Angular library plus a runnable dev-app."
+---
+
+Two of the ABP templates carry a companion Angular workspace next to the .NET projects. They use the standard Angular CLI layout (`angular.json`, `package.json`, `tsconfig*.json`) and are consumed in different ways depending on whether you scaffold a full application or a reusable module.
+
+## templates/app/angular
+
+This is the SPA front-end for the layered [`app` template](/templates/app) when you run `abp new <name> -u angular`. Layout:
+
+```text
+templates/app/angular/
+├── README.md
+├── angular.json
+├── package.json
+├── start.ps1                 # convenience launcher
+├── tsconfig.app.json
+├── tsconfig.json
+├── tsconfig.spec.json
+└── src/
+    ├── app/
+    │   ├── app.component.ts
+    │   ├── app.config.ts
+    │   ├── app.routes.ts
+    │   ├── route.provider.ts
+    │   ├── home/             # Generated home page that hits the API
+    │   └── shared/
+    ├── assets/
+    ├── environments/         # apiUrl + oAuthConfig per dev/prod
+    ├── favicon.ico
+    ├── index.html
+    ├── main.ts               # bootstrap with @abp/ng.core providers
+    ├── polyfills.ts
+    └── styles.scss
+```
+
+`package.json` references the `@abp/ng.*` and `@volo/abp.ng.*` packages, and `src/main.ts` boots Angular with the `provideAbpCore`/`provideAbpOAuth` providers. Routing is split across `app.routes.ts` and `route.provider.ts` so each ABP module that registers Angular routes plugs in through its `provideAbpRoutes`/`RouteService` API.
+
+When `abp new -u angular` runs, the CLI:
+
+1. Downloads the same `app-<version>.zip` and processes the `aspnet-core/` projects through the normal pipeline.
+2. Copies the `angular/` folder beside the generated `aspnet-core/` folder (also renaming `MyCompanyName.MyProjectName` references).
+3. Runs `yarn` (via `abp install-libs`) inside the workspace unless `--skip-installing-libs` is set.
+4. Patches `src/environments/environment*.ts` with the actual port of the generated `HttpApi.Host` — `AngularEnvironmentFilePortChangeForSeparatedAuthServersStep` handles the separated-auth-server case.
+
+The Angular workspace shipped with [`app-nolayers`](/templates/app-nolayers) is structurally identical — same `src/app/`, `environments/`, and `angular.json` shape — but smaller because the backend has fewer endpoints.
+
+## templates/module/angular
+
+The Angular companion for the [`module` template](/templates/module) is **not** an application — it is a workspace that produces a publishable Angular library plus a runnable dev app:
+
+```text
+templates/module/angular/
+├── README.md
+├── angular.json
+├── package.json
+├── tsconfig.json
+├── tsconfig.prod.json
+└── projects/
+    ├── my-project-name/                 # The publishable library (ng-packagr)
+    │   ├── ng-package.json
+    │   ├── package.json
+    │   ├── tsconfig.lib.json
+    │   ├── tsconfig.lib.prod.json
+    │   ├── tsconfig.spec.json
+    │   ├── config/
+    │   └── src/                         # Components, services, providers exposed by the lib
+    └── dev-app/                         # Sample SPA that consumes the library locally
+        ├── src/
+        ├── tsconfig.app.json
+        ├── tsconfig.prod.json
+        └── tsconfig.spec.json
+```
+
+`projects/my-project-name/` is built with [ng-packagr](https://github.com/ng-packagr/ng-packagr) — that is what produces the `@your-org/your-module` NPM package that other Angular apps install when they consume your module. `projects/dev-app/` is a regular Angular app that imports the library directly so the module author can iterate without publishing to a registry.
+
+`ng-package.json` controls the library build (entry points, asset copying, etc.), and the dev app's `angular.json` is wired so `ng serve dev-app` builds the library first via Angular project dependencies.
+
+## How the CLI assembles the workspace
+
+`AppTemplateBase` / `ModuleTemplateBase` (under `framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectBuilding/Templates/`) keep or drop the Angular folder based on the chosen `-u` value, and the shared `SolutionRenameStep` rewrites both file names and contents — `my-project-name` (Angular convention is kebab-case) gets the derived name based on the chosen project name, and `MyCompanyName.MyProjectName` gets the C#-style name. `AngularSourceCodeAdder` and `AngularPwaSupportAdder` (`framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectModification/`) handle later mutations triggered by `abp add-module` and `--pwa`.
+
+<CardGroup cols={2}>
+  <Card title="App template" href="/templates/app">Consuming application backend.</Card>
+  <Card title="Module template" href="/templates/module">Reusable module backend.</Card>
+  <Card title="Install libs" href="/tooling/install-libs">How the CLI populates wwwroot/libs after generation.</Card>
+</CardGroup>

@@ -1,0 +1,103 @@
+---
+title: "Module Template: Reusable ABP Module With Standard Layer Split"
+sidebarTitle: "Module"
+description: "The starter that produces a reusable ABP module the same shape as Volo.Abp.Identity — Domain.Shared, Domain, Application.Contracts, Application, HttpApi, EntityFrameworkCore, MongoDB, Web."
+---
+
+`templates/module/` is the template you choose with `abp new <name> -t module`. It produces a stand-alone Git repository that ships a reusable ABP module the same way the official modules do — `Volo.Abp.Identity`, `Volo.Abp.PermissionManagement`, `Volo.CmsKit`, and friends all follow this exact layout.
+
+## Layout
+
+```text
+templates/module/
+├── MyCompanyName.MyProjectName.abpmdl               # Module manifest (ABP Studio)
+├── MyCompanyName.MyProjectName.abpsln               # Solution manifest
+├── MyCompanyName.MyProjectName.slnx
+├── NuGet.Config
+├── common.props
+├── docker-compose.yml / .override.yml / .migrations.yml
+├── database/                                        # SQL scripts & DbMigrator
+├── src/
+│   ├── MyCompanyName.MyProjectName.Domain.Shared
+│   ├── MyCompanyName.MyProjectName.Domain
+│   ├── MyCompanyName.MyProjectName.Application.Contracts
+│   ├── MyCompanyName.MyProjectName.Application
+│   ├── MyCompanyName.MyProjectName.HttpApi
+│   ├── MyCompanyName.MyProjectName.HttpApi.Client
+│   ├── MyCompanyName.MyProjectName.EntityFrameworkCore
+│   ├── MyCompanyName.MyProjectName.MongoDB
+│   ├── MyCompanyName.MyProjectName.Web
+│   ├── MyCompanyName.MyProjectName.Blazor
+│   ├── MyCompanyName.MyProjectName.Blazor.Server
+│   ├── MyCompanyName.MyProjectName.Blazor.WebAssembly
+│   ├── MyCompanyName.MyProjectName.Blazor.WebAssembly.Bundling
+│   └── MyCompanyName.MyProjectName.Installer        # NuGet installer / wrapper package
+├── host/                                            # Sample hosts that load the module
+│   ├── MyCompanyName.MyProjectName.AuthServer
+│   ├── MyCompanyName.MyProjectName.HttpApi.Host
+│   ├── MyCompanyName.MyProjectName.Host.Shared
+│   ├── MyCompanyName.MyProjectName.Web.Host         # Tiered MVC host
+│   ├── MyCompanyName.MyProjectName.Web.Unified      # Single-host MVC
+│   ├── MyCompanyName.MyProjectName.Blazor.Host
+│   ├── MyCompanyName.MyProjectName.Blazor.Host.Client
+│   └── MyCompanyName.MyProjectName.Blazor.Server.Host
+├── test/                                            # xUnit projects per src/ layer
+└── angular/                                         # Angular workspace
+```
+
+## The src/ projects
+
+Each project under `src/` mirrors one ABP layer for the module:
+
+| Project | Purpose |
+| --- | --- |
+| `Domain.Shared` | Constants, enums, localization keys shipped with the module. |
+| `Domain` | Entities, repositories, domain services owned by the module. |
+| `Application.Contracts` | App service interfaces, DTOs, permission definitions, feature definitions. |
+| `Application` | App service implementations. |
+| `HttpApi` | MVC controllers exposing the app services as HTTP endpoints. |
+| `HttpApi.Client` | Strongly typed proxy clients (mirror of `HttpApi` for remote consumers). |
+| `EntityFrameworkCore` | DB context extensions, configurations, EF Core repositories for the module's aggregates. |
+| `MongoDB` | MongoDB context extensions + repositories for the same aggregates. |
+| `Web` | Razor-Pages / MVC UI shipped with the module (menu contributors, view components, embedded assets). |
+| `Blazor` | Shared Blazor UI (works for both Server and WASM). |
+| `Blazor.Server` | Blazor Server-specific glue. |
+| `Blazor.WebAssembly` | WASM-specific glue. |
+| `Blazor.WebAssembly.Bundling` | Style/script bundle contributor for `abp bundle`. |
+| `Installer` | Wrapper NuGet that pulls every relevant module package into a host project in one go. |
+
+Consumers cherry-pick the layers they need: a microservice that just needs the API references `Domain.Shared` + `Domain` + `Application` + `EntityFrameworkCore`, while a UI host adds `Web` (or `Blazor.*`).
+
+## The host/ projects
+
+`host/` is not part of the published module — it is a runnable sandbox that the module author uses to develop and demo the module. It carries every host shape a consumer might use:
+
+- `AuthServer`, `HttpApi.Host`, `Host.Shared` — separated authority + API for tiered scenarios;
+- `Web.Host` / `Web.Unified` — tiered vs single-process MVC hosts;
+- `Blazor.Host`, `Blazor.Host.Client`, `Blazor.Server.Host` — Blazor flavours;
+
+Each one already has the module wired into its `[DependsOn]` graph and a `DbContext` pre-configured.
+
+## Selection switches
+
+| Flag | Effect |
+| --- | --- |
+| `--no-ui` | Removes the `Web`, `Blazor*`, and `host/*` UI projects — useful when shipping a pure backend module. |
+| `--new-template` | Generates the module with source-code references and a fresh-from-template layout (used by `abp add-module --new-template`). |
+| `-d mongodb` | Keeps both `EntityFrameworkCore` and `MongoDB` (modules typically ship both), but switches the host's `DbContext` to MongoDB. |
+
+The custom steps are contributed by `ModuleTemplateBase` (`framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectBuilding/Templates/Module/ModuleTemplateBase.cs`); pruning follows the same `RemoveProjectFromSolutionStep`/`RemoveFolderStep` pattern used by the layered `app` template.
+
+## Angular front-end
+
+`templates/module/angular/` is an Angular workspace containing:
+
+- `projects/my-project-name/` — the publishable Angular library that exposes the module's services/components;
+- `projects/dev-app/` — a runnable demo app that consumes the library locally during development.
+
+This mirrors how official ABP modules ship Angular code (each one publishes a `@volo/abp.ng.<module>` package built from a library project). See [Angular templates](/templates/angular) for the cross-cutting view.
+
+<CardGroup cols={2}>
+  <Card title="App template" href="/templates/app">The consuming application template.</Card>
+  <Card title="Project modification" href="/tooling/project-modification">How `abp add-module` injects this module into another solution.</Card>
+</CardGroup>

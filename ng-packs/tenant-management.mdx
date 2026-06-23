@@ -1,0 +1,43 @@
+---
+title: "@abp/ng.tenant-management — Tenant CRUD UI"
+sidebarTitle: "tenant-management"
+description: "Admin screens for tenants: list, create, edit, delete, and per-row connection strings, features, and permissions."
+---
+
+`@abp/ng.tenant-management` (`npm/ng-packs/packages/tenant-management/`) ships the tenant admin page used in multi-tenant ABP apps.
+
+## Source layout
+
+```
+packages/tenant-management/
+├── proxy/
+└── src/lib/
+    ├── tenant-management.module.ts
+    ├── tenant-management-routing.module.ts
+    ├── tenant-management.routes.ts
+    ├── components/
+    │   └── tenants/                  // <abp-tenants> page
+    ├── defaults/                     // ePropList, eFormPropList, eActionList
+    ├── enums/
+    ├── guards/
+    ├── models/
+    ├── resolvers/
+    └── tokens/
+└── config/                           // provideAbpTenantManagement
+```
+
+## Pattern
+
+Same shape as [identity](/ng-packs/identity): the `TenantsComponent` uses `<abp-extensible-table>` and `<abp-extensible-form>` driven by `defaults/`. Row actions invoke:
+
+- `TenantService.get/update/delete` (generated proxy).
+- A connection-strings modal for the multi-database setup.
+- The [feature-management](/ng-packs/feature-management) modal with `providerName="T"`.
+- The [permission-management](/ng-packs/permission-management) modal.
+
+`guards/` enforce `AbpTenantManagement.Tenants` policies; `resolvers/` preload definitions and editions.
+
+<CardGroup cols={2}>
+  <Card title="feature-management" href="/ng-packs/feature-management">Per-tenant features</Card>
+  <Card title="identity" href="/ng-packs/identity">Sister admin module</Card>
+</CardGroup>

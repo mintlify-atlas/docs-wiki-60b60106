@@ -1,0 +1,157 @@
+---
+title: "Localization with resources and virtual JSON files"
+sidebarTitle: "Localization"
+description: "AbpStringLocalizerFactory, LocalizationResource, the language provider, and the virtual-file-system convention for shipping JSON translations."
+---
+
+ABP layers a resource model on top of `Microsoft.Extensions.Localization`. Every module declares a marker class (a *resource*) and ships JSON translation files through the [virtual file system](/framework/cross-cutting/virtual-file-system); `AbpStringLocalizerFactory` replaces the default `IStringLocalizerFactory` so a single `IStringLocalizer<T>` can pull translations from any module that has registered against that resource — and even from external admin-managed stores.
+
+## Module bootstrap
+
+```csharp
+// framework/src/Volo.Abp.Localization/Volo/Abp/Localization/AbpLocalizationModule.cs
+[DependsOn(typeof(AbpVirtualFileSystemModule), typeof(AbpSettingsModule),
+           typeof(AbpLocalizationAbstractionsModule), typeof(AbpThreadingModule))]
+public class AbpLocalizationModule : AbpModule
+{
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        AbpStringLocalizerFactory.Replace(context.Services);
+        Configure<AbpVirtualFileSystemOptions>(o => o.FileSets.AddEmbedded<AbpLocalizationModule>("Volo.Abp", "Volo/Abp"));
+        Configure<AbpLocalizationOptions>(options =>
+        {
+            options.Resources.Add<DefaultResource>("en");
+            options.Resources.Add<AbpLocalizationResource>("en").AddVirtualJson("/Localization/Resources/AbpLocalization");
+        });
+    }
+}
+```
+
+`AbpStringLocalizerFactory.Replace` removes the framework default and registers ABP's factory plus dependencies. `Resources.Add<T>(defaultCulture)` declares a `LocalizationResource` keyed by the type, and `AddVirtualJson(path)` registers a contributor that loads JSON files under that virtual path.
+
+## Resources
+
+`LocalizationResource` (`Volo/Abp/Localization/LocalizationResource.cs`) wraps a marker `Type`. The marker is decorated with `[LocalizationResourceName(...)]` so the resource name is stable across renames:
+
+```csharp
+[LocalizationResourceName("Default")]
+public class DefaultResource { }
+```
+
+`DefaultResource` is the catch-all fallback (`DefaultResource.cs`). Application modules typically declare their own:
+
+```csharp
+[LocalizationResourceName("BookStore")]
+[InheritResource(typeof(AbpUiResource))]  // pull base translations
+public class BookStoreResource { }
+```
+
+The `InheritResourceAttribute` lists base resource types whose dictionaries are consulted when a key is missing locally — `LocalizationResource.AddBaseResourceTypes` walks every `IInheritedResourceTypesProvider` attribute and accumulates the inherited names. Lookups fall back through the inheritance chain before reporting a missing translation.
+
+## `AbpStringLocalizerFactory`
+
+`AbpStringLocalizerFactory` (`AbpStringLocalizerFactory.cs`) implements both `IStringLocalizerFactory` (the ASP.NET interface) and `IAbpStringLocalizerFactory` (with by-name lookups). It composes three sources:
+
+| Source | When consulted |
+| --- | --- |
+| `LocalizationResource` registered in `AbpLocalizationOptions.Resources` | Standard module-declared resources. |
+| `IExternalLocalizationStore.GetResourceOrNull(name)` | Admin-UI / database-managed resources from `Volo.Abp.LanguageManagement`. |
+| `ResourceManagerStringLocalizerFactory` (`InnerFactory`) | Fallback to ASP.NET's `.resx`-style behaviour for resource types ABP doesn't know about. |
+
+```csharp
+public virtual IStringLocalizer Create(Type resourceType)
+{
+    var resource = AbpLocalizationOptions.Resources.GetOrNull(resourceType);
+    if (resource == null) return InnerFactory.Create(resourceType);   // resx fallback
+    return CreateInternal(resource.ResourceName, resource, lockCache: true);
+}
+```
+
+The factory caches one `AbpDictionaryBasedStringLocalizer` per resource name and protects rebuilds with a `SemaphoreSlim`. The cache is invalidated when external stores notify via the localisation change events.
+
+`IStringLocalizer<T>` consumers receive the cached instance:
+
+```csharp
+public class MyAppService : ApplicationService
+{
+    public MyAppService() { LocalizationResource = typeof(BookStoreResource); }
+}
+// or
+public class MyService(IStringLocalizer<BookStoreResource> L) { … }
+```
+
+Calls fall back through the resource's `BaseResourceNames`, then through `Options.TryToGetFromBaseCulture` / `Options.TryToGetFromDefaultCulture` (both default `true`) before returning a "missing" `LocalizedString` with `ResourceNotFound = true`.
+
+## Language provider
+
+`ILanguageProvider.GetLanguagesAsync()` returns the languages the app can switch to. The default (`DefaultLanguageProvider.cs`) reads `AbpLocalizationOptions.Languages`:
+
+```csharp
+public class DefaultLanguageProvider : ILanguageProvider, ITransientDependency
+{
+    public DefaultLanguageProvider(IOptions<AbpLocalizationOptions> options) => Options = options.Value;
+    public Task<IReadOnlyList<LanguageInfo>> GetLanguagesAsync()
+        => Task.FromResult((IReadOnlyList<LanguageInfo>)Options.Languages);
+}
+```
+
+`LanguageInfo` (`LanguageInfo.cs`) carries `CultureName`, `UiCultureName`, `DisplayName`, `FlagIcon`. Modules add to it during configuration:
+
+```csharp
+Configure<AbpLocalizationOptions>(o =>
+{
+    o.Languages.Add(new LanguageInfo("en", "en", "English"));
+    o.Languages.Add(new LanguageInfo("tr", "tr", "Türkçe"));
+});
+```
+
+The `Volo.Abp.LanguageManagement` module ships a database-backed `ILanguageProvider` that lets administrators add languages at runtime. `LocalizationSettingProvider` exposes the user's chosen language as a setting so middlewares can pick it up.
+
+## Virtual-file resources
+
+Translations themselves live in JSON files inside each module's `Localization/` folder, embedded into the assembly via the virtual file system:
+
+```
+src/MyModule/
+├── MyModule.csproj                    # <EmbeddedResource Include="Localization/**/*.json" />
+└── Localization/
+    └── BookStore/
+        ├── en.json
+        ├── tr.json
+        └── de.json
+```
+
+Inside the module:
+
+```csharp
+Configure<AbpVirtualFileSystemOptions>(o => o.FileSets.AddEmbedded<BookStoreModule>());
+Configure<AbpLocalizationOptions>(o =>
+{
+    o.Resources.Add<BookStoreResource>("en")
+        .AddVirtualJson("/Localization/BookStore");   // virtual path
+});
+```
+
+The `AddVirtualJson` extension registers a `VirtualJsonLocalizationResourceContributor` that, on first use of the resource, enumerates the directory via `IVirtualFileProvider` and loads each `<culture>.json` into the resource's `LocalizationDictionary`. Because the files are virtual, downstream apps can override them by registering a physical file set at the same virtual path — exactly the convention used to ship customised translations without forking the module.
+
+## `AbpLocalizationOptions`
+
+```csharp
+// AbpLocalizationOptions.cs
+public LocalizationResourceDictionary Resources { get; }
+public Type? DefaultResourceType { get; set; }            // fallback when no [LocalizationResource] on caller
+public ITypeList<ILocalizationResourceContributor> GlobalContributors { get; }  // attached to every resource
+public List<LanguageInfo> Languages { get; }              // shown by language switch components
+public Dictionary<string, List<NameValue>> LanguagesMap { get; }   // culture → display alternatives
+public Dictionary<string, List<NameValue>> LanguageFilesMap { get; }
+public bool TryToGetFromBaseCulture { get; set; } = true;          // en-GB falls back to en
+public bool TryToGetFromDefaultCulture { get; set; } = true;       // en when current culture is missing
+```
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Virtual file system" href="/framework/cross-cutting/virtual-file-system" />
+  <Card title="Settings" href="/framework/cross-cutting/settings" />
+  <Card title="Text templating" href="/framework/cross-cutting/text-templating" />
+</CardGroup>

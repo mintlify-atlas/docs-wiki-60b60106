@@ -1,0 +1,41 @@
+---
+title: "@abp/ng.permission-management — Grant Permissions UI"
+sidebarTitle: "permission-management"
+description: "Modal-based permission editor that loads, edits, and persists policy grants for a provider (role, user, client) using a tri-state tree."
+---
+
+`@abp/ng.permission-management` (`npm/ng-packs/packages/permission-management/`) ships the policy-grant editor opened from Identity (per role/user), tenant management, OpenIddict clients, and any other module that needs to delegate permissions.
+
+## Source layout
+
+```
+packages/permission-management/
+├── proxy/                        // generated client (@abp/ng.permission-management/proxy)
+└── src/lib/
+    ├── permission-management.module.ts
+    ├── components/
+    │   ├── permission-management.component.ts  // <abp-permission-management>
+    │   ├── permission-management.component.html
+    │   └── resource-permission-management/
+    ├── defaults/, enums/, models/, tokens/
+    └── services/
+```
+
+## How it is opened
+
+The component is a self-contained `<abp-permission-management>` with `[(visible)]`, `providerKey`, and `providerName` inputs:
+
+```html
+<abp-permission-management
+  [(visible)]="visible"
+  [providerName]="'R'"
+  [providerKey]="role.name">
+</abp-permission-management>
+```
+
+`providerName` is one of the framework provider keys (`R` role, `U` user, `C` client, …). On open, it calls `PermissionsService.get({ providerName, providerKey })` from the generated proxy, renders the result as a grouped tri-state tree (powered by `@abp/ng.components/tree`), and posts the diff back via `PermissionsService.update(...)`.
+
+<CardGroup cols={2}>
+  <Card title="identity" href="/ng-packs/identity">Opens this modal per user/role row</Card>
+  <Card title="components" href="/ng-packs/components">Tree component used inside</Card>
+</CardGroup>

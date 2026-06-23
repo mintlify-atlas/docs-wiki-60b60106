@@ -1,0 +1,95 @@
+---
+title: "Background Jobs Module: Durable Job Persistence for ABP"
+sidebarTitle: "Background Jobs"
+description: "Database-backed implementation of ABP's IBackgroundJobStore — persists BackgroundJobRecord aggregates with retries, priority and EF Core or MongoDB stores."
+---
+
+The Background Jobs module is the default, database-backed implementation of ABP's [background job](/framework/background/background-jobs) abstraction. Jobs enqueued via `IBackgroundJobManager` are persisted as `BackgroundJobRecord` aggregates and later dequeued by a worker that picks the highest-priority, retry-eligible rows. Source lives under `/home/daytona/repos/abpframework/abp/modules/background-jobs/src/`.
+
+## Packages
+
+| Package | Role |
+| --- | --- |
+| `Volo.Abp.BackgroundJobs.Domain.Shared` | Constants (`BackgroundJobRecordConsts.*Length`) |
+| `Volo.Abp.BackgroundJobs.Domain` | `BackgroundJobRecord` aggregate, `BackgroundJobStore`, `IBackgroundJobRepository` |
+| `Volo.Abp.BackgroundJobs.EntityFrameworkCore` | EF Core repository and `IBackgroundJobsDbContext` |
+| `Volo.Abp.BackgroundJobs.MongoDB` | Mongo repository and `IBackgroundJobsMongoDbContext` |
+
+## BackgroundJobRecord
+
+`BackgroundJobRecord` (`Volo.Abp.BackgroundJobs.Domain/Volo/Abp/BackgroundJobs/BackgroundJobRecord.cs`) is the persistent shape of a single enqueued job:
+
+```csharp
+public class BackgroundJobRecord : AggregateRoot<Guid>, IHasCreationTime
+{
+    public virtual string ApplicationName { get; set; }   // scheduler scope
+    public virtual string JobName { get; set; }           // AssemblyQualifiedName of the job type
+    public virtual string JobArgs { get; set; }           // serialized arguments
+    public virtual short TryCount { get; set; }
+    public virtual DateTime CreationTime { get; set; }
+    public virtual DateTime NextTryTime { get; set; }
+    public virtual DateTime? LastTryTime { get; set; }
+    public virtual bool IsAbandoned { get; set; }         // set once retries are exhausted
+    public virtual BackgroundJobPriority Priority { get; set; }
+}
+```
+
+`ApplicationName` lets multiple ABP applications share the same database table without consuming each other's queues. `IsAbandoned` is flipped by the worker when retries are exhausted so the row stops being polled (it stays in the table for diagnostics).
+
+## IBackgroundJobStore implementation
+
+`BackgroundJobStore` (`BackgroundJobStore.cs`) is the `IBackgroundJobStore` implementation the framework consumes:
+
+```csharp
+public class BackgroundJobStore : IBackgroundJobStore, ITransientDependency
+{
+    public virtual Task<BackgroundJobInfo> FindAsync(Guid jobId) =>
+        ObjectMapper.Map<BackgroundJobRecord, BackgroundJobInfo>(await BackgroundJobRepository.FindAsync(jobId));
+
+    public virtual Task InsertAsync(BackgroundJobInfo jobInfo) =>
+        BackgroundJobRepository.InsertAsync(ObjectMapper.Map<BackgroundJobInfo, BackgroundJobRecord>(jobInfo));
+
+    public virtual Task<List<BackgroundJobInfo>> GetWaitingJobsAsync(string applicationName, int maxResultCount) =>
+        ObjectMapper.Map<List<BackgroundJobRecord>, List<BackgroundJobInfo>>(
+            await BackgroundJobRepository.GetWaitingListAsync(applicationName, maxResultCount));
+
+    public virtual Task UpdateAsync(BackgroundJobInfo jobInfo) { /* load, map onto tracked record, update */ }
+    public virtual Task DeleteAsync(Guid jobId) => BackgroundJobRepository.DeleteAsync(jobId);
+}
+```
+
+`BackgroundJobInfo` (in `Volo.Abp.BackgroundJobs` shared infrastructure) is the in-memory DTO the framework prefers; the store translates to/from `BackgroundJobRecord` via the module's object-mapper profile.
+
+## Repository
+
+`IBackgroundJobRepository : IBasicRepository<BackgroundJobRecord, Guid>` (`IBackgroundJobRepository.cs`) only adds one custom query:
+
+```csharp
+Task<List<BackgroundJobRecord>> GetWaitingListAsync(
+    string applicationName, int maxResultCount,
+    CancellationToken cancellationToken = default);
+```
+
+### EF Core implementation
+
+`EfCoreBackgroundJobRepository` (`Volo.Abp.BackgroundJobs.EntityFrameworkCore/.../EfCoreBackgroundJobRepository.cs`) defines the worker's pick order — highest priority first, then fewest retries, then oldest `NextTryTime`:
+
+```csharp
+return (await GetDbSetAsync())
+    .Where(t => t.ApplicationName == applicationName)
+    .Where(t => !t.IsAbandoned && t.NextTryTime <= now)
+    .OrderByDescending(t => t.Priority)
+    .ThenBy(t => t.TryCount)
+    .ThenBy(t => t.NextTryTime)
+    .Take(maxResultCount);
+```
+
+### MongoDB implementation
+
+`MongoBackgroundJobRepository` (`Volo.Abp.BackgroundJobs.MongoDB/.../MongoBackgroundJobRepository.cs`) runs the **identical** LINQ query against `IMongoDbContextProvider<IBackgroundJobsMongoDbContext>`. Both implementations use `IClock.Now` so virtual clocks in tests behave correctly.
+
+## Choosing this provider
+
+ABP also ships in-memory and Hangfire/Quartz/RabbitMQ providers (see [/framework/background/background-jobs](/framework/background/background-jobs)). Use this database store when you want at-least-once durability in your own database, transactional enqueue (the insert participates in the caller's [unit of work](/framework/data/unit-of-work)) and zero extra infrastructure.
+
+See also: [/framework/background/background-jobs](/framework/background/background-jobs) for `IBackgroundJobManager` / `IBackgroundJob<TArgs>` and [/framework/background/background-workers](/framework/background/background-workers) for the polling worker that drains the queue.

@@ -1,0 +1,136 @@
+---
+title: "Bundling: Script/Style Pipelines and Tag Helpers"
+sidebarTitle: "Bundling"
+description: "BundleManager, contributors, AbpBundlingOptions, and the abp-script-bundle / abp-style-bundle tag helpers that drive MVC and Blazor asset pipelines."
+---
+
+ABP ships its own bundling pipeline rather than depending on `BundleConfig.cs`, gulp, or webpack glue. It is split across three assemblies that layer cleanly:
+
+- `Volo.Abp.AspNetCore.Mvc.UI.Bundling.Abstractions` — the data model: `BundleConfiguration`, `BundleFile`, `IBundleContributor`, `AbpBundlingOptions`.
+- `Volo.Abp.AspNetCore.Bundling` — the host-neutral runtime: `IBundleManager`, `BundleManagerBase`, `BundleCache`, `IScriptBundler`/`IStyleBundler` interfaces.
+- `Volo.Abp.AspNetCore.Mvc.UI.Bundling` — the MVC binding: a concrete `BundleManager`, the `ScriptBundler`/`StyleBundler` implementations using NUglify, and the Razor tag helpers.
+
+The same data model is reused for Blazor Server, Blazor WebAssembly, and MAUI Blazor through the `*.Theming.Bundling` packages — only the bundler implementation changes.
+
+## Configuration: AbpBundlingOptions
+
+`framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bundling.Abstractions/Volo/Abp/AspNetCore/Mvc/UI/Bundling/AbpBundlingOptions.cs`:
+
+```csharp
+public class AbpBundlingOptions
+{
+    public BundleConfigurationCollection StyleBundles { get; }
+    public BundleConfigurationCollection ScriptBundles { get; }
+    public HashSet<string> MinificationIgnoredFiles { get; }
+    public string BundleFolderName { get; } = "__bundles";
+    public BundlingMode Mode { get; set; } = BundlingMode.Auto;
+    public bool DeferScriptsByDefault { get; set; }
+    public List<string> DeferScripts { get; }
+    public bool PreloadStylesByDefault { get; set; }
+    public List<string> PreloadStyles { get; }
+    public AbpBundlingGlobalAssetsOptions GlobalAssets { get; set; }
+    public BundleParameterDictionary Parameters { get; set; }
+}
+```
+
+`Mode` is a `BundlingMode` enum (`Auto`, `Bundle`, `BundleAndMinify`, `None`). `Auto` resolves to `None` in `Development` and to `BundleAndMinify` everywhere else, so dev-time debugging keeps real source URLs while production gets a single minified file. `BundleFolderName` (`__bundles` by default) is what appears in the rendered `<script src="/__bundles/...">` path.
+
+A module configures bundles by name in `ConfigureServices`:
+
+```csharp
+Configure<AbpBundlingOptions>(options =>
+{
+    options.ScriptBundles
+        .Configure(StandardBundles.Scripts.Global, bundle =>
+        {
+            bundle.AddContributors(typeof(MyAppScriptContributor));
+        });
+    options.StyleBundles
+        .Configure(StandardBundles.Styles.Global, bundle =>
+        {
+            bundle.AddFiles("/styles/site.css");
+        });
+});
+```
+
+`BundleConfigurationExtensions` (in the abstractions assembly) provides the fluent surface: `AddFiles(...)`, `AddExternalFiles(...)`, `AddContributors(...)`, `AddBaseBundles(...)`, `RemoveFiles(...)`, etc.
+
+## IBundleContributor
+
+A contributor is a typed unit of work. The interface (`Volo/Abp/AspNetCore/Mvc/UI/Bundling/IBundleContributor.cs`) has four hooks:
+
+```csharp
+public interface IBundleContributor
+{
+    Task PreConfigureBundleAsync(BundleConfigurationContext context);
+    Task ConfigureBundleAsync(BundleConfigurationContext context);
+    Task PostConfigureBundleAsync(BundleConfigurationContext context);
+    Task ConfigureDynamicResourcesAsync(BundleConfigurationContext context);
+}
+```
+
+The base class `BundleContributor` provides empty implementations so most subclasses override one method. `ConfigureBundleAsync` typically calls `context.Files.AddIfNotContains(...)` with a virtual-file-system path. `ConfigureDynamicResourcesAsync` injects content generated at request time (e.g. CSS that embeds the current theme colour).
+
+Contributors are discoverable by dependency rather than by registration. `AbpBundleContributorOptions` lets a module declare *additional* contributors against an existing bundle, which is how feature modules attach themselves to the standard `Global` bundle without owning it.
+
+## BundleManager: producing the final URL list
+
+`Volo.Abp.AspNetCore.Bundling/Volo/Abp/AspNetCore/Bundling/BundleManagerBase.cs` is the runtime. The MVC subclass `Volo.Abp.AspNetCore.Mvc.UI.Bundling/Volo/Abp/AspNetCore/Mvc/UI/Bundling/BundleManager.cs` adds web-host wiring (`IWebHostEnvironment`, `IWebRequestResources`). The public surface is just two methods:
+
+```csharp
+public interface IBundleManager
+{
+    Task<IReadOnlyList<BundleFile>> GetStyleBundleFilesAsync(string bundleName);
+    Task<IReadOnlyList<BundleFile>> GetScriptBundleFilesAsync(string bundleName);
+}
+```
+
+The high-level flow when a tag helper asks for a bundle:
+
+```mermaid
+flowchart TD
+    A[abp-script-bundle name=Global] --> B[IBundleManager]
+    B --> C{Mode}
+    C -->|None| D[Return raw BundleFiles from contributors]
+    C -->|Bundle / BundleAndMinify| E[BundleCache.GetOrAdd]
+    E -->|cache hit| F[Return cached URL]
+    E -->|miss| G[Run contributors -> file list]
+    G --> H[IScriptBundler / IStyleBundler]
+    H --> I[Write to IDynamicFileProvider:<br/>/__bundles/Global.{hash}.js]
+    I --> J[Return single URL with hash]
+```
+
+`BundleCache` (`Volo/Abp/AspNetCore/Bundling/BundleCache.cs`) keys cached results by bundle name plus a hash over the contributor outputs, so a contributor change invalidates the cache without restarting the host. The generated file is registered with `IDynamicFileProvider`, which `CompositeFileProvider` in [ASP.NET Core Overview](/framework/aspnetcore/overview) already merges into `IWebHostEnvironment.WebRootFileProvider`.
+
+## ScriptBundler and StyleBundler
+
+`framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bundling/Volo/Abp/AspNetCore/Mvc/UI/Bundling/Scripts/ScriptBundler.cs` and `Styles/StyleBundler.cs` are the concrete `IScriptBundler` / `IStyleBundler` implementations. They use NUglify for minification and concatenate via `MvcUiBundlerBase`. `AbpBundlingOptions.MinificationIgnoredFiles` skips already-minified inputs (e.g. `bootstrap.min.css`) to avoid re-running NUglify on production-built vendor files.
+
+## Tag helpers
+
+Razor consumes the manager via tag helpers in `Volo.Abp.AspNetCore.Mvc.UI.Bundling/Volo/Abp/AspNetCore/Mvc/UI/Bundling/TagHelpers/`:
+
+| Tag helper | Element | Notes |
+| --- | --- | --- |
+| `AbpScriptBundleTagHelper` | `<abp-script-bundle name="Global" />` | Has `defer` attribute (defaults to `AbpBundlingOptions.DeferScriptsByDefault`). |
+| `AbpStyleBundleTagHelper` | `<abp-style-bundle name="Global" />` | Has `preload` attribute (defaults to `AbpBundlingOptions.PreloadStylesByDefault`). |
+| `AbpScriptTagHelper` | `<abp-script src="/js/x.js" />` | Single-file equivalent honouring the same cache-busting hash. |
+| `AbpStyleTagHelper` | `<abp-style src="/css/x.css" />` | Single-file CSS. |
+| `AbpBundleItemTagHelper` | `<abp-bundle-item />` | Adds a file to the surrounding bundle inline. |
+| `AbpBundleTagHelper` | `<abp-bundle />` | Inline anonymous bundle. |
+| `ScriptNonceTagHelper` | `<script>` | Injects the per-request CSP nonce from `AbpSecurityHeaderNonceHelper`. |
+
+The two "service" classes per tag helper (e.g. `AbpScriptBundleTagHelperService`) hold the rendering logic and are injected via the standard `IAbpTagHelperService` pattern, which makes them testable and DI-friendly. Server-rendered bundles look like:
+
+```html
+<abp-script-bundle name="@StandardBundles.Scripts.Global" />
+<abp-style-bundle  name="@StandardBundles.Styles.Global"  />
+```
+
+In Blazor Server, the same configuration is consumed by `BlazorServerComponentBundleManager` (`framework/src/Volo.Abp.AspNetCore.Components.Server.Theming/Bundling/`) which renders the bundle URLs at component render time. Blazor WebAssembly statically materialises bundles at publish time via `Volo.Abp.AspNetCore.Components.WebAssembly.Theming.Bundling`.
+
+## Global assets
+
+`AbpBundlingGlobalAssetsOptions` (referenced by `AbpBundlingOptions.GlobalAssets`) lets a module ship CSS/JS that should be appended to *every* bundle (e.g. a custom font icon set). The `BundleManager` reads it before invoking contributors so global assets land in deterministic order at the top of the output.
+
+For how themes use these bundles, see [UI MVC — Themes](/framework/ui-mvc/themes); for how Blazor reuses them, see [Blazor — Overview](/framework/blazor/overview).

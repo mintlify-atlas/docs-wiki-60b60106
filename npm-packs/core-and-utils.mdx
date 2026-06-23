@@ -1,0 +1,133 @@
+---
+title: "@abp/core & @abp/utils — abp.js Runtime Foundation"
+sidebarTitle: "Core & Utils"
+description: "Inside @abp/core's abp.js: log, localization, auth, settings, ui block/busy, event bus, ajax helpers, clock — plus the LinkedList helper shipped by @abp/utils."
+---
+
+These are the two foundation packages under `npm/packs/`. Every MVC and Blazor
+Server theme depends — directly or transitively — on `@abp/core`, and
+`@abp/utils` is a one-class TypeScript helper used by the Angular packages
+under `npm/ng-packs/`.
+
+## @abp/core
+
+The package is tiny on disk:
+
+```text
+npm/packs/core/
+├── README.md
+├── abp.resourcemapping.js
+├── package.json
+└── src/
+    ├── abp.css
+    └── abp.js          ← 882 lines, the entire runtime
+```
+
+```json
+// npm/packs/core/package.json
+"name": "@abp/core",
+"dependencies": { "@abp/utils": "~10.5.0-rc.4" }
+```
+
+```javascript
+// npm/packs/core/abp.resourcemapping.js
+module.exports = {
+  mappings: { "@node_modules/@abp/core/src/*": "@libs/abp/core/" }
+}
+```
+
+After `abp install-libs`, `abp.js` and `abp.css` land at
+`wwwroot/libs/abp/core/`. Every other UI bundle pulls them in via the layout's
+`@abpScripts` / `@abpStyles` bundles.
+
+### What abp.js declares
+
+`npm/packs/core/src/abp.js` builds a single `abp` global from a series of
+sections (the file uses `/* SECTION ********** */` banners). Reading the source
+top to bottom:
+
+| Section | Globals it adds | Notes |
+| --- | --- | --- |
+| Application paths | `abp.appPath`, `abp.pageLoadTime`, `abp.toAbsAppPath(path)` | Reads `<base href>` to seed `appPath`. |
+| Logging | `abp.log.{debug,info,warn,error,fatal}`, `abp.log.levels` | Thin `console.log` wrapper, level-filtered. |
+| Localization | `abp.localization.{values,resources,localize,getResource,getLanguagesMap}`, `abp.localization.currentCulture` | Multi-resource lookup with `defaultResourceName` fallback. |
+| Authorization | `abp.auth.{grantedPolicies,isGranted,isAnyGranted,areAllGranted,setToken,getToken,clearToken}` | Token cookie name is `Abp.AuthToken`. |
+| Settings | `abp.setting.{values,get,getBoolean,getInt}` | Backed by the values dictionary that the server emits. |
+| Notification | `abp.notify.{success,info,warn,error}` | Pluggable — Toastr provider lives in `@abp/toastr`. |
+| Message | `abp.message.{info,success,warn,error}` and a private `_showMessage` | Pluggable too — SweetAlert2 provider replaces it. |
+| UI | `abp.ui.block/unblock`, `abp.ui.setBusy/clearBusy` | Used by the loading spinner and form-submit guard. |
+| Event bus | `abp.event.{on,off,trigger}` | A simple pub/sub keyed by event name (see `abp.event = (function () { … })()` around line 455). |
+| Utils | `abp.utils.{createNamespace,replaceAll,formatString,...}` | C#-style `string.format` helper for use from Razor. |
+| Security | `abp.security.antiForgery.{tokenCookieName,tokenHeaderName}` | Defaults `XSRF-TOKEN` / `RequestVerificationToken`. |
+| Clock | `abp.clock.{kind,trySetBrowserTimeZoneToCookie,toLocaleStringOptions}` | Listens for `abp.configurationInitialized` to settle the time-zone cookie. |
+| Features | `abp.features.{values}`, `abp.globalFeatures.{enabledFeatures}` | Feature toggle store. |
+
+The corresponding line numbers, for code spelunking:
+
+```text
+9    abp.appPath = baseHref || ...
+25   abp.log
+76   abp.localization
+213  abp.auth
+265  abp.setting
+285  abp.notify
+306  abp.message
+356  abp.ui
+455  abp.event = (function () { ... })()
+516  abp.utils
+749  abp.security
+760  abp.clock
+857  abp.features
+872  abp.globalFeatures
+```
+
+### Pub/sub example
+
+The event bus is the most-used API outside of `abp.localization`:
+
+```javascript
+abp.event.on('abp.configurationInitialized', function () {
+  // happens once the server-side AbpApplicationConfiguration is fetched
+  if (abp.clock.trySetBrowserTimeZoneToCookie) { /* ... */ }
+});
+
+abp.event.trigger('myapp.products.created', { id: 42 });
+```
+
+ABP also uses it internally — line 853 of `abp.js` listens for
+`abp.configurationInitialized` to apply the browser time-zone cookie.
+
+## @abp/utils
+
+`npm/packs/utils/` is an `ng-packagr` library that exports a single class:
+
+```typescript
+// npm/packs/utils/projects/utils/src/public-api.ts
+export * from './lib/linked-list';
+```
+
+```json
+// npm/packs/utils/package.json
+"name": "@abp/utils",
+"main":  "dist/bundles/abp-utils.umd.js",
+"dependencies": { "just-compare": "^2.3.0" }
+```
+
+`linked-list.ts` exposes `ListNode<T>` and `LinkedList<T>` with typical methods
+(`addHead`, `addTail`, `attach`, etc.). It is consumed by the Angular packages
+under `npm/ng-packs/` — notably `@abp/ng.core` for route-history and replace
+strategies — and is *not* loaded into the browser via `install-libs`.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="npm/packs overview" href="/npm-packs/overview">
+    Where these foundation packs sit relative to the rest of the asset graph.
+  </Card>
+  <Card title="MVC UI bundles" href="/npm-packs/aspnetcore-mvc-ui">
+    The bundles that ship `abp.js` to MVC apps.
+  </Card>
+  <Card title="Vendor libraries" href="/npm-packs/vendor-libraries">
+    Every other `@abp/<vendor>` package and what it wraps.
+  </Card>
+</CardGroup>

@@ -1,0 +1,144 @@
+---
+title: "Docs Module: Markdown Documentation Sites Backed by GitHub"
+sidebarTitle: "Docs"
+description: "Volo.Docs renders versioned Markdown documentation pulled from GitHub, the file system or a local DB — projects, documents, navigation trees and PDFs."
+---
+
+The Docs module is the engine behind `docs.abp.io` and any self-hosted ABP docs portal. It models a documentation **project** (one product or repository), pulls **documents** from a configurable `IDocumentSource` (GitHub, local file system, custom), and renders them with a navigation tree loaded from a JSON file inside the source. Source lives under `/home/daytona/repos/abpframework/abp/modules/docs/src/`.
+
+## Package layout
+
+| Package | Role |
+| --- | --- |
+| `Volo.Docs.Domain.Shared` | `NavigationNode`, version DTOs |
+| `Volo.Docs.Domain` | `Project` + `Document` aggregates, `IDocumentSource` implementations (GitHub, FileSystem), PDF generation |
+| `Volo.Docs.Application(.Contracts)` | Public document/project app services, `TocGeneratorService`, `INavigationTreePostProcessor` |
+| `Volo.Docs.Admin.Application(.Contracts)` | Admin authoring for projects and PDFs |
+| `Volo.Docs.Common.Application(.Contracts)` | DTOs shared by both sides |
+| `Volo.Docs.HttpApi(.Client)` / `Volo.Docs.Admin.HttpApi(.Client)` | Mirrored controllers/clients |
+| `Volo.Docs.Web` | Public Razor Pages reader UI |
+| `Volo.Docs.EntityFrameworkCore` / `Volo.Docs.MongoDB` | Persistence |
+
+## Project
+
+`Project` (`Volo.Docs.Domain/Volo/Docs/Projects/Project.cs`) is the configuration aggregate per documented product:
+
+```csharp
+public class Project : AggregateRoot<Guid>
+{
+    public virtual string Name { get; protected set; }
+    public virtual string ShortName { get; protected set; }            // URL segment
+    public virtual string Format { get; protected set; }               // "md" or "html"
+    public virtual string DefaultDocumentName { get; protected set; }  // default "Index"
+    public virtual string NavigationDocumentName { get; protected set; } // default "docs-nav.json"
+    public virtual string ParametersDocumentName { get; protected set; } // default "docs-params.json"
+    public virtual string MinimumVersion { get; set; }
+    public virtual string DocumentStoreType { get; protected set; }    // "GitHub" / "FileSystem" / custom
+    public virtual string MainWebsiteUrl { get; set; }
+    public virtual string LatestVersionBranchName { get; set; }
+    public virtual List<ProjectPdfFile> PdfFiles { get; set; }
+}
+```
+
+`ExtraProperties` (via `IHasExtraProperties`) carry per-source configuration — for GitHub: organization, repository, root URL, version mapping. `ProjectPdfFile` stores generated PDF artifacts; helpers in `Projects/Pdf/` build them on demand.
+
+## Document
+
+`Document` (`Documents/Document.cs`) is the cached, rendered output for a `(projectId, version, languageCode, fileName)` tuple:
+
+```csharp
+public class Document : AggregateRoot<Guid>
+{
+    public virtual Guid ProjectId { get; protected set; }
+    public virtual string Name { get; protected set; }
+    public virtual string Version { get; protected set; }
+    public virtual string LanguageCode { get; protected set; }
+    public virtual string FileName { get; set; }
+    public virtual string Content { get; set; }
+    public virtual string Format { get; set; }
+    public virtual string EditLink { get; set; }
+    public virtual string RootUrl { get; set; }
+    public virtual string RawRootUrl { get; set; }
+    public virtual string LocalDirectory { get; set; }
+    public virtual DateTime LastUpdatedTime { get; set; }
+    public virtual DateTime? LastSignificantUpdateTime { get; set; }
+    public virtual DateTime LastCachedTime { get; set; }
+    public virtual List<DocumentContributor> Contributors { get; set; }
+}
+```
+
+The application service refreshes a `Document` from its source if `LastCachedTime` is older than the configured cache duration.
+
+## IDocumentSource
+
+`IDocumentSource` (`Documents/IDocumentSource.cs`) is the strategy interface:
+
+```csharp
+public interface IDocumentSource : IDomainService
+{
+    Task<Document> GetDocumentAsync(Project project, string documentName, string languageCode, string version,
+        DateTime? lastKnownSignificantUpdateTime = null);
+    Task<List<VersionInfo>> GetVersionsAsync(Project project);
+    Task<DocumentResource> GetResource(Project project, string resourceName, string languageCode, string version);
+    Task<LanguageConfig> GetLanguageListAsync(Project project, string version);
+}
+```
+
+`DocumentSourceFactory` (`Documents/DocumentSourceFactory.cs`) maps a `Project.DocumentStoreType` string to a registered DI type via `DocumentSourceOptions.Sources`:
+
+```csharp
+public virtual IDocumentSource Create(string sourceType)
+{
+    var serviceType = Options.Sources.GetOrDefault(sourceType);
+    if (serviceType == null) throw new ApplicationException($"Unknown document store: {sourceType}");
+    return (IDocumentSource) ServiceProvider.GetRequiredService(serviceType);
+}
+```
+
+### Built-in sources
+
+| Source | Class | `Type` constant |
+| --- | --- | --- |
+| GitHub | `GitHub/Documents/GithubDocumentSource.cs` | `"GitHub"` |
+| File system | `FileSystem/Documents/FileSystemDocumentSource.cs` | `"FileSystem"` |
+
+`GithubDocumentSource` uses `Octokit` plus `IGithubRepositoryManager` to download raw Markdown for a `(version, languageCode, fileName)` tuple, computes the edit link (`/tree/` → `/blob/`), pulls contributors from the GitHub API, and uses `IGithubPatchAnalyzer` to decide whether a commit was a "significant update" or just a typo. `DocsGithubLanguageOptions` lets you remap language codes between the docs UI and folder names in the repo. Custom sources just implement `IDocumentSource` and register themselves in `DocumentSourceOptions`.
+
+## Navigation JSON
+
+Each `Project` references a navigation document by name (default `docs-nav.json`). It is parsed into a tree of `NavigationNode` (`Volo.Docs.Domain.Shared/Volo/Docs/Documents/NavigationNode.cs`):
+
+```csharp
+public class NavigationNode
+{
+    [JsonPropertyName("text")]  public string Text { get; set; }
+    [JsonPropertyName("path")]  public string Path { get; set; }
+    [JsonPropertyName("items")] public List<NavigationNode> Items { get; set; }
+    [JsonPropertyName("isLazyExpandable")] public bool IsLazyExpandable { get; set; }
+    [JsonPropertyName("isIndex")]          public bool IsIndex { get; set; }
+    [JsonPropertyName("keywords")]         public string[] Keywords { get; set; }
+    // ...
+    public bool IsLeaf => !HasChildItems;
+}
+```
+
+`IDocumentAppService.GetNavigationAsync(GetNavigationDocumentInput)` returns the parsed tree to the reader UI. `INavigationTreePostProcessor` is an extension point: register one (the framework supplies `NullNavigationTreePostProcessor` by default) to rewrite the tree — e.g. filter by feature flag or inject section headers — via `NavigationTreePostProcessorContext`. `TocGeneratorService` walks the same tree to render the in-page table of contents.
+
+## Reader flow
+
+```mermaid
+graph TD
+    Req[GET /Documents/{project}/{version}/{lang}/{name}] --> AppSvc[DocumentAppService]
+    AppSvc -- "find or refresh" --> Repo[IDocumentRepository]
+    AppSvc -- "miss / stale" --> Factory[DocumentSourceFactory]
+    Factory --> GH[GithubDocumentSource]
+    Factory --> FS[FileSystemDocumentSource]
+    GH --> Doc[Document]
+    FS --> Doc
+    Doc --> Repo
+    AppSvc --> NavParse[Parse docs-nav.json → NavigationNode]
+    NavParse --> PostProc[INavigationTreePostProcessor]
+    PostProc --> Web[Web Pages renderer]
+```
+
+See also: [/modules/blogging](/modules/blogging) for another GitHub-Markdown-style content module, and [/framework/cross-cutting/caching](/framework/cross-cutting/caching) for the distributed cache wrapping `Document` lookups.

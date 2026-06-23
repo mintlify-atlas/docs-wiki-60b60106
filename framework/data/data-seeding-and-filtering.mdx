@@ -1,0 +1,167 @@
+---
+title: "Data seeding and global data filters"
+sidebarTitle: "Data Seeding & Filters"
+description: "Volo.Abp.Data's IDataSeedContributor, DataSeeder, and the IDataFilter abstraction wired into EF Core's global query filters."
+---
+
+`Volo.Abp.Data` is the contract layer that sits between domain code and any persistence provider. It owns two complementary concerns that show up in every ABP application: a *seeding pipeline* that contributors populate at module-initialisation time, and a *data-filter ambient state* that toggles soft-delete and multi-tenant predicates on the fly. This page walks both, then shows how the EF Core integration plugs the filter state into model-builder expressions.
+
+## `AbpDataModule` bootstrap
+
+```csharp
+// framework/src/Volo.Abp.Data/Volo/Abp/Data/AbpDataModule.cs
+[DependsOn(typeof(AbpObjectExtendingModule), typeof(AbpUnitOfWorkModule), typeof(AbpEventBusAbstractionsModule))]
+public class AbpDataModule : AbpModule
+{
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+        => AutoAddDataSeedContributors(context.Services);
+
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        Configure<AbpDbConnectionOptions>(context.Services.GetConfiguration());
+        context.Services.AddSingleton(typeof(IDataFilter<>), typeof(DataFilter<>));
+    }
+}
+```
+
+`AutoAddDataSeedContributors` scans every service registered through the conventional registrar and accumulates every concrete `IDataSeedContributor` into `AbpDataSeedOptions.Contributors`. `IDataFilter<TFilter>` is the per-filter singleton; the non-generic `DataFilter` (also registered as `ISingletonDependency`) lazy-resolves them.
+
+## Data seeding
+
+### `IDataSeedContributor` and `DataSeedContext`
+
+```csharp
+// framework/src/Volo.Abp.Data/Volo/Abp/Data/IDataSeedContributor.cs
+public interface IDataSeedContributor
+{
+    Task SeedAsync(DataSeedContext context);
+}
+```
+
+`DataSeedContext` (`Volo/Abp/Data/DataSeedContext.cs`) carries the target `TenantId?`, a free-form `Properties` dictionary, and a fluent `WithProperty(key, value)` for caller-defined extras. Pass it to `IDataSeeder.SeedAsync` to run the whole pipeline once per tenant.
+
+### `DataSeeder` orchestration
+
+```csharp
+// framework/src/Volo.Abp.Data/Volo/Abp/Data/DataSeeder.cs
+[UnitOfWork]
+public virtual async Task SeedAsync(DataSeedContext context)
+{
+    using var scope = ServiceScopeFactory.CreateScope();
+    if (context.Properties.ContainsKey(DataSeederExtensions.SeedInSeparateUow))
+    {
+        var manager = scope.ServiceProvider.GetRequiredService<IUnitOfWorkManager>();
+        foreach (var contributorType in Options.Contributors)
+        {
+            using var uow = manager.Begin(uowOptions, requiresNew);
+            await ((IDataSeedContributor)scope.ServiceProvider.GetRequiredService(contributorType))
+                  .SeedAsync(context);
+            await uow.CompleteAsync();
+        }
+    }
+    else
+    {
+        foreach (var contributorType in Options.Contributors)
+            await ((IDataSeedContributor)scope.ServiceProvider.GetRequiredService(contributorType))
+                  .SeedAsync(context);
+    }
+}
+```
+
+Key behaviours:
+
+- Contributors run in registration order via a dedicated `IServiceScope`, so they cannot leak transient state.
+- The whole call is `[UnitOfWork]` by default — every contributor sees the same EF/Mongo connection and transaction.
+- Setting `DataSeederExtensions.SeedInSeparateUow` (with optional `SeedInSeparateUowOptions` / `SeedInSeparateUowRequiresNew`) splits each contributor into its own UoW. Use this when you have long-running seed steps and want crash isolation.
+- `AbpDataSeedOptions.Contributors` is an ordered `ITypeList<IDataSeedContributor>` so module authors can re-order with `options.Contributors.Insert(0, typeof(MySeed))`.
+
+### Authoring a contributor
+
+```csharp
+public class ProductDataSeedContributor : IDataSeedContributor, ITransientDependency
+{
+    private readonly IRepository<Product, Guid> _products;
+    public ProductDataSeedContributor(IRepository<Product, Guid> p) => _products = p;
+
+    public async Task SeedAsync(DataSeedContext context)
+    {
+        if (await _products.GetCountAsync() > 0) return;
+        await _products.InsertManyAsync(new[]
+        {
+            new Product(Guid.NewGuid(), "Default A", context.TenantId),
+            new Product(Guid.NewGuid(), "Default B", context.TenantId)
+        });
+    }
+}
+```
+
+Modules typically invoke the seeder from `OnApplicationInitialization`:
+
+```csharp
+await context.ServiceProvider.GetRequiredService<IDataSeeder>()
+      .SeedAsync(new DataSeedContext(tenantId));
+```
+
+## Ambient data filters
+
+### `IDataFilter` and per-filter state
+
+```csharp
+// framework/src/Volo.Abp.Data/Volo/Abp/Data/IDataFilter.cs
+public interface IDataFilter
+{
+    IDisposable Enable<TFilter>() where TFilter : class;
+    IDisposable Disable<TFilter>() where TFilter : class;
+    bool IsEnabled<TFilter>() where TFilter : class;
+}
+```
+
+`DataFilter` (`DataFilter.cs`) is a singleton that resolves the strongly-typed `IDataFilter<TFilter>` on demand. Each `DataFilter<TFilter>` uses `AsyncLocal<DataFilterState>` so toggles flow across `await` boundaries but stay isolated per logical request. The first read seeds the async-local from `AbpDataFilterOptions.DefaultStates[typeof(TFilter)]`, falling back to enabled (`new DataFilterState(true)`).
+
+The two filters defined by ABP core are *marker interfaces*, not types you implement:
+
+- `ISoftDelete` — entities that own a boolean `IsDeleted`.
+- `IMultiTenant` — entities with a `Guid? TenantId`.
+
+Other filters can be added by simply choosing a marker type and calling `_dataFilter.Disable<IMyFilter>()`.
+
+### Toggling at runtime
+
+```csharp
+using (_dataFilter.Disable<ISoftDelete>())
+{
+    var includingDeleted = await _orders.GetListAsync();
+}
+```
+
+`Disable<TFilter>()` returns a `DisposeAction` that re-enables on dispose; nested toggles are no-ops if the state is already what the caller asked for (`IDisposable Enable() { if (IsEnabled) return NullDisposable.Instance; ... }`). `AbpDataFilterOptions.DefaultStates` lets you ship a feature as off-by-default for a specific filter (e.g. seed paths frequently default `ISoftDelete` to disabled).
+
+## Wiring into EF Core global filters
+
+The EF Core module reads the same `IDataFilter` and turns it into LINQ expressions in `AbpDbContext.CreateFilterExpression<TEntity>`:
+
+```csharp
+// framework/src/Volo.Abp.EntityFrameworkCore/Volo/Abp/EntityFrameworkCore/AbpDbContext.cs
+if (typeof(ISoftDelete).IsAssignableFrom(typeof(TEntity)))
+{
+    expression = e => !IsSoftDeleteFilterEnabled || !EF.Property<bool>(e, "IsDeleted");
+}
+if (typeof(IMultiTenant).IsAssignableFrom(typeof(TEntity)))
+{
+    Expression<Func<TEntity, bool>> mt = e => !IsMultiTenantFilterEnabled
+                                              || EF.Property<Guid>(e, "TenantId") == CurrentTenantId;
+    expression = expression == null ? mt : QueryFilterExpressionHelper.CombineExpressions(expression, mt);
+}
+```
+
+`IsSoftDeleteFilterEnabled` / `IsMultiTenantFilterEnabled` resolve `IDataFilter.IsEnabled<...>()` per query, so a `using (_dataFilter.Disable<ISoftDelete>())` block immediately removes the predicate. The compiled-query cache key generated by `AbpDbContext.GetCompiledQueryCacheKey()` (`framework/src/Volo.Abp.EntityFrameworkCore/Volo/Abp/EntityFrameworkCore/GlobalFilters/AbpCompiledQueryCacheKeyGenerator.cs`) embeds both flags plus `CurrentTenantId` so EF never reuses a translation built under a different filter state.
+
+When `AbpEfCoreGlobalFilterOptions.UseDbFunction` is enabled, ABP swaps the LINQ predicates for calls into `AbpEfCoreDataFilterDbFunctionMethods.SoftDeleteFilter` / `MultiTenantFilter`, registered as model-builder DB functions. `AbpEfCoreCurrentDbContext` propagates the current `AbpDbContext` into those functions so they can read live filter state at translation time — see [Entity Framework Core integration](/framework/data/entity-framework-core) for the model-creation entry points.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Entity Framework Core" href="/framework/data/entity-framework-core" />
+  <Card title="MongoDB" href="/framework/data/mongodb" />
+  <Card title="Memory DB" href="/framework/data/memory-db" />
+</CardGroup>

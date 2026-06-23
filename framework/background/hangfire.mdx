@@ -1,0 +1,83 @@
+---
+title: "Hangfire Integration: Jobs and Workers with Dashboard"
+sidebarTitle: "Hangfire"
+description: "Run ABP background jobs and recurring workers on Hangfire storage with HangfireBackgroundJobManager, HangfireBackgroundWorkerManager, and dashboards."
+---
+
+`Volo.Abp.HangFire` plus the `BackgroundJobs.HangFire` and `BackgroundWorkers.Hangfire` modules replace ABP's default job/worker subsystems with [Hangfire](https://www.hangfire.io), gaining persistent storage (SQL Server, PostgreSQL, MongoDB, etc.) and the Hangfire dashboard.
+
+## AbpHangfireModule
+
+`AbpHangfireModule` (`framework/src/Volo.Abp.HangFire/Volo/Abp/Hangfire/AbpHangfireModule.cs`) calls `services.AddHangfire(...)` and uses `PreConfigure<IGlobalConfiguration>` actions so other modules can layer storage configuration. It also exposes the singleton `AbpHangfireBackgroundJobServer` built through `AbpHangfireOptions.BackgroundJobServerFactory` — by default this constructs a `BackgroundJobServer(ServerOptions, Storage, AdditionalProcesses)`.
+
+```csharp
+context.Services.AddHangfire(configuration => preActions.Configure(configuration));
+context.Services.AddSingleton(sp =>
+    new AbpHangfireBackgroundJobServer(
+        sp.GetRequiredService<IOptions<AbpHangfireOptions>>().Value.BackgroundJobServerFactory(sp)));
+```
+
+`AbpHangfireOptions` exposes:
+
+| Property | Purpose |
+| --- | --- |
+| `DefaultQueuePrefix` | Prepended to every resolved queue name. |
+| `DefaultQueue` | Falls back to `EnqueuedState.DefaultQueue`. |
+| `ServerOptions` | Hangfire `BackgroundJobServerOptions`. |
+| `Storage` | Optional explicit `JobStorage`. |
+| `BackgroundJobServerFactory` | Hook to build the server with custom storage/processes. |
+| `AdditionalProcesses` | Extra `IBackgroundProcess` instances. |
+
+## HangfireBackgroundJobManager
+
+`HangfireBackgroundJobManager` (`framework/src/Volo.Abp.BackgroundJobs.HangFire/Volo/Abp/BackgroundJobs/Hangfire/HangfireBackgroundJobManager.cs`) is registered with `[Dependency(ReplaceServices = true)]`. It delegates to Hangfire's static API through a generic adapter:
+
+```csharp
+return Task.FromResult(delay.HasValue
+    ? BackgroundJob.Schedule<HangfireJobExecutionAdapter<TArgs>>(
+        adapter => adapter.ExecuteAsync(GetQueueName(typeof(TArgs)), args, default), delay.Value)
+    : BackgroundJob.Enqueue<HangfireJobExecutionAdapter<TArgs>>(
+        adapter => adapter.ExecuteAsync(GetQueueName(typeof(TArgs)), args, default)));
+```
+
+`HangfireJobExecutionAdapter<TArgs>` resolves the ABP job from DI and calls its `Execute`/`ExecuteAsync` method, preserving the `IBackgroundJob<TArgs>` programming model. Queue names come from `[Queue]` on the job class plus `AbpHangfireOptions.DefaultQueuePrefix`.
+
+## HangfireBackgroundWorkerManager
+
+`HangfireBackgroundWorkerManager` (`framework/src/Volo.Abp.BackgroundWorkers.Hangfire/Volo/Abp/BackgroundWorkers/Hangfire/HangfireBackgroundWorkerManager.cs`) replaces `BackgroundWorkerManager`. For each worker it inspects the type:
+
+- `IHangfireBackgroundWorker` → registered as a Hangfire `RecurringJob` (`RecurringJob.AddOrUpdate(workerId, () => worker.DoWorkAsync(ct), cronExpression, options)`).
+- `AsyncPeriodicBackgroundWorkerBase` / `PeriodicBackgroundWorkerBase` → wrapped by `HangfirePeriodicBackgroundWorkerAdapter` so timer-based workers run as Hangfire recurring jobs.
+- Other `IBackgroundWorker` instances fall back to in-process execution.
+
+When storage supports `JobStorageFeatures.JobQueueProperty`, queue names from `IHangfireBackgroundWorker.Queue` (combined with `DefaultQueuePrefix`) are forwarded; otherwise a warning is logged and only `[Queue]` attributes work.
+
+## Dashboard
+
+`AbpHangfireApplicationBuilderExtensions.UseHangfireDashboard` (`Volo.Abp.BackgroundJobs.HangFire/Microsoft/AspNetCore/Builder/`) registers Hangfire's dashboard middleware behind ABP's authorization (`AbpHangfireAuthorizationFilter` enforces an ABP permission). Wire it in `OnApplicationInitialization`:
+
+```csharp
+app.UseHangfireDashboard("/hangfire");
+```
+
+## Storage
+
+Choose any Hangfire storage provider (SQL Server, PostgreSQL, MongoDB, etc.) via `PreConfigure<IGlobalConfiguration>`:
+
+```csharp
+public override void PreConfigureServices(ServiceConfigurationContext context)
+{
+    PreConfigure<IGlobalConfiguration>(config =>
+    {
+        config.UseSqlServerStorage(connectionString);
+    });
+}
+```
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Background Jobs" href="/framework/background/background-jobs" icon="list-check" />
+  <Card title="Background Workers" href="/framework/background/background-workers" icon="gears" />
+  <Card title="Quartz" href="/framework/background/quartz" icon="clock" />
+</CardGroup>

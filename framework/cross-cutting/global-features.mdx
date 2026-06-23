@@ -1,0 +1,114 @@
+---
+title: "Global features for compile-time module toggles"
+sidebarTitle: "Global Features"
+description: "GlobalFeatureManager and [RequiresGlobalFeature] — host-wide on/off switches that disable services regardless of tenant or user."
+---
+
+`Volo.Abp.GlobalFeatures` is the *host-wide* counterpart to the per-tenant feature system. Where `[RequiresFeature]` asks "is this feature enabled for this tenant right now?", `[RequiresGlobalFeature]` asks "does this deployment include this module's optional capability at all?". The answer is decided once at boot via `GlobalFeatureManager.Instance.Enable<TFeature>()` and never changes for the process lifetime — that's why the state lives on a static singleton.
+
+## `GlobalFeatureManager`
+
+```csharp
+// framework/src/Volo.Abp.GlobalFeatures/Volo/Abp/GlobalFeatures/GlobalFeatureManager.cs
+public class GlobalFeatureManager
+{
+    public static GlobalFeatureManager Instance { get; protected set; } = new();
+
+    public GlobalModuleFeaturesDictionary Modules { get; }
+    protected HashSet<string> EnabledFeatures { get; } = new();
+
+    public virtual bool IsEnabled<TFeature>() => IsEnabled(typeof(TFeature));
+    public virtual bool IsEnabled(string featureName) => EnabledFeatures.Contains(featureName);
+
+    public virtual void Enable<TFeature>() => Enable(typeof(TFeature));
+    public virtual void Enable(Type type) => Enable(GlobalFeatureNameAttribute.GetName(type));
+    public virtual void Enable(string featureName) => EnabledFeatures.AddIfNotContains(featureName);
+
+    public virtual void Disable<TFeature>() => Disable(typeof(TFeature));
+    public virtual void Disable(string name) => EnabledFeatures.Remove(name);
+}
+```
+
+The static `Instance` is mutated by modules in `PreConfigureServices` *before* DI is built, because consumers read `IsEnabled<TFeature>()` from attributes and module composition code. `GlobalModuleFeaturesDictionary` groups features by their owning module so a SaaS product can call `GlobalFeatureManager.Instance.Modules.Module<MyModule>().Enable<EditingFeature>()`.
+
+Feature names come from `[GlobalFeatureName]` decorations on marker types:
+
+```csharp
+[GlobalFeatureName("BookStore.Editing")]
+public class EditingFeature { }
+```
+
+Without the attribute, `GlobalFeatureNameAttribute.GetName` falls back to the type's full name.
+
+## `[RequiresGlobalFeature]`
+
+`RequiresGlobalFeatureAttribute` (`RequiresGlobalFeatureAttribute.cs`) is a class-level marker:
+
+```csharp
+[AttributeUsage(AttributeTargets.Class)]
+public class RequiresGlobalFeatureAttribute : Attribute
+{
+    public RequiresGlobalFeatureAttribute(Type type)    => Type = type;
+    public RequiresGlobalFeatureAttribute(string name)  => Name = name;
+    public virtual string GetFeatureName() => Name ?? GlobalFeatureNameAttribute.GetName(Type!);
+}
+```
+
+Apply it to an application service, controller, or any DynamicProxy-able class to gate the entire type:
+
+```csharp
+[RequiresGlobalFeature(typeof(EditingFeature))]
+public class EditingAppService : ApplicationService { … }
+```
+
+## `GlobalFeatureInterceptor`
+
+The interceptor runs in front of every method call on a gated service:
+
+```csharp
+// GlobalFeatureInterceptor.cs
+public override async Task InterceptAsync(IAbpMethodInvocation invocation)
+{
+    if (AbpCrossCuttingConcerns.IsApplied(invocation.TargetObject, AbpCrossCuttingConcerns.GlobalFeatureChecking))
+    {
+        await invocation.ProceedAsync();
+        return;
+    }
+
+    if (invocation.TargetObject != null &&
+        !GlobalFeatureHelper.IsGlobalFeatureEnabled(invocation.TargetObject.GetType(), out var attribute))
+    {
+        throw new AbpGlobalFeatureNotEnabledException(code: AbpGlobalFeatureErrorCodes.GlobalFeatureIsNotEnabled)
+            .WithData("ServiceName", invocation.TargetObject.GetType().FullName!)
+            .WithData("GlobalFeatureName", attribute!.Name!);
+    }
+    await invocation.ProceedAsync();
+}
+```
+
+`GlobalFeatureHelper.IsGlobalFeatureEnabled` walks the attribute and consults `GlobalFeatureManager.Instance`. `AbpGlobalFeatureNotEnabledException` (with `AbpGlobalFeatureErrorCodes` localisation code) is converted to an HTTP 403 by the ASP.NET Core error subscriber.
+
+`GlobalFeatureInterceptorRegistrar` registers the interceptor only on classes that actually carry `[RequiresGlobalFeature]`, so unaffected services pay no proxy cost.
+
+## Enabling features
+
+Modules enable their global features in `PreConfigureServices`:
+
+```csharp
+public class MyProductModule : AbpModule
+{
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        GlobalFeatureManager.Instance.Modules.Module<EditingFeature>().Enable();
+    }
+}
+```
+
+Hosting apps can disable features they don't want by inverting the call after the module loads. Because the state is process-wide, this is a compile/deploy-time decision; for runtime tenant or user toggles, use [features](/framework/cross-cutting/features) instead.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Features (tenant/edition)" href="/framework/cross-cutting/features" />
+  <Card title="Authorization" href="/framework/cross-cutting/authorization" />
+</CardGroup>

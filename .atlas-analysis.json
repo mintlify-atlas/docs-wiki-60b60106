@@ -1,0 +1,637 @@
+{
+  "projectType": "framework",
+  "projectName": "ABP",
+  "projectDescription": "Open-source modular application framework for ASP.NET Core providing DDD, multi-tenancy, modularity, and pre-built modules for enterprise software.",
+  "theme": "maple",
+  "primaryColor": "#ba4395",
+  "lightColor": "#ffffff",
+  "darkColor": "#7a2a62",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Wiki",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "index",
+              "overview/architecture",
+              "overview/repository-layout",
+              "overview/solution-structure",
+              "overview/glossary"
+            ]
+          },
+          {
+            "group": "Core Runtime",
+            "pages": [
+              "framework/core/overview",
+              "framework/core/abp-application",
+              "framework/core/modularity",
+              "framework/core/dependency-injection",
+              "framework/core/aspects-and-interceptors",
+              "framework/core/exception-handling",
+              "framework/core/threading"
+            ]
+          },
+          {
+            "group": "DDD Building Blocks",
+            "pages": [
+              "framework/ddd/overview",
+              "framework/ddd/entities-and-aggregates",
+              "framework/ddd/repositories",
+              "framework/ddd/domain-services",
+              "framework/ddd/application-services",
+              "framework/ddd/specifications",
+              "framework/ddd/object-extending"
+            ]
+          },
+          {
+            "group": "Data & Persistence",
+            "pages": [
+              "framework/data/overview",
+              "framework/data/unit-of-work",
+              "framework/data/entity-framework-core",
+              "framework/data/mongodb",
+              "framework/data/dapper",
+              "framework/data/memory-db",
+              "framework/data/data-seeding-and-filtering"
+            ]
+          },
+          {
+            "group": "Cross-Cutting Concerns",
+            "pages": [
+              "framework/cross-cutting/authorization",
+              "framework/cross-cutting/auditing",
+              "framework/cross-cutting/validation",
+              "framework/cross-cutting/localization",
+              "framework/cross-cutting/settings",
+              "framework/cross-cutting/features",
+              "framework/cross-cutting/global-features",
+              "framework/cross-cutting/caching",
+              "framework/cross-cutting/object-mapping",
+              "framework/cross-cutting/virtual-file-system",
+              "framework/cross-cutting/text-templating",
+              "framework/cross-cutting/timing",
+              "framework/cross-cutting/guids",
+              "framework/cross-cutting/security",
+              "framework/cross-cutting/json-serialization"
+            ]
+          },
+          {
+            "group": "Multi-Tenancy",
+            "pages": [
+              "framework/multi-tenancy/overview",
+              "framework/multi-tenancy/tenant-resolution",
+              "framework/multi-tenancy/aspnetcore-multitenancy",
+              "framework/multi-tenancy/data-filtering"
+            ]
+          },
+          {
+            "group": "ASP.NET Core Integration",
+            "pages": [
+              "framework/aspnetcore/overview",
+              "framework/aspnetcore/mvc",
+              "framework/aspnetcore/authentication",
+              "framework/aspnetcore/bundling",
+              "framework/aspnetcore/signalr",
+              "framework/aspnetcore/serilog",
+              "framework/aspnetcore/swashbuckle",
+              "framework/aspnetcore/api-versioning"
+            ]
+          },
+          {
+            "group": "HTTP & Remote Services",
+            "pages": [
+              "framework/http/overview",
+              "framework/http/dynamic-client-proxy",
+              "framework/http/static-client-proxy",
+              "framework/http/identity-model",
+              "framework/http/remote-services"
+            ]
+          },
+          {
+            "group": "Event Bus",
+            "pages": [
+              "framework/event-bus/overview",
+              "framework/event-bus/local-event-bus",
+              "framework/event-bus/distributed-event-bus",
+              "framework/event-bus/rabbitmq",
+              "framework/event-bus/kafka",
+              "framework/event-bus/azure-service-bus",
+              "framework/event-bus/dapr",
+              "framework/event-bus/rebus"
+            ]
+          },
+          {
+            "group": "Background Jobs & Workers",
+            "pages": [
+              "framework/background/overview",
+              "framework/background/background-jobs",
+              "framework/background/background-workers",
+              "framework/background/hangfire",
+              "framework/background/quartz",
+              "framework/background/rabbitmq",
+              "framework/background/tickerq"
+            ]
+          },
+          {
+            "group": "BLOB Storage",
+            "pages": [
+              "framework/blob-storing/overview",
+              "framework/blob-storing/providers"
+            ]
+          },
+          {
+            "group": "UI & Theming (MVC/Razor)",
+            "pages": [
+              "framework/ui-mvc/overview",
+              "framework/ui-mvc/bootstrap-tag-helpers",
+              "framework/ui-mvc/themes",
+              "framework/ui-mvc/widgets",
+              "framework/ui-mvc/navigation"
+            ]
+          },
+          {
+            "group": "Blazor Integration",
+            "pages": [
+              "framework/blazor/overview",
+              "framework/blazor/server",
+              "framework/blazor/webassembly",
+              "framework/blazor/maui",
+              "framework/blazor/mudblazor",
+              "framework/blazor/blazorise"
+            ]
+          },
+          {
+            "group": "Other Infrastructure",
+            "pages": [
+              "framework/infra/distributed-locking",
+              "framework/infra/emailing",
+              "framework/infra/sms",
+              "framework/infra/imaging",
+              "framework/infra/ai",
+              "framework/infra/ldap",
+              "framework/infra/dapr",
+              "framework/infra/minify",
+              "framework/infra/auto-mapper",
+              "framework/infra/mapperly",
+              "framework/infra/fluent-validation",
+              "framework/infra/autofac",
+              "framework/infra/castle-core"
+            ]
+          },
+          {
+            "group": "Pre-built Modules",
+            "pages": [
+              "modules/overview",
+              "modules/identity",
+              "modules/account",
+              "modules/openiddict",
+              "modules/identity-server",
+              "modules/permission-management",
+              "modules/feature-management",
+              "modules/setting-management",
+              "modules/tenant-management",
+              "modules/audit-logging",
+              "modules/background-jobs",
+              "modules/blob-storing-database",
+              "modules/cms-kit",
+              "modules/blogging",
+              "modules/docs",
+              "modules/users",
+              "modules/basic-theme",
+              "modules/virtual-file-explorer",
+              "modules/client-simulation"
+            ]
+          },
+          {
+            "group": "Angular UI (ng-packs)",
+            "pages": [
+              "ng-packs/overview",
+              "ng-packs/core",
+              "ng-packs/components",
+              "ng-packs/theme-shared",
+              "ng-packs/theme-basic",
+              "ng-packs/account",
+              "ng-packs/identity",
+              "ng-packs/permission-management",
+              "ng-packs/feature-management",
+              "ng-packs/setting-management",
+              "ng-packs/tenant-management",
+              "ng-packs/cms-kit",
+              "ng-packs/oauth",
+              "ng-packs/schematics-generators"
+            ]
+          },
+          {
+            "group": "NPM Packs (MVC/Web)",
+            "pages": [
+              "npm-packs/overview",
+              "npm-packs/core-and-utils",
+              "npm-packs/aspnetcore-mvc-ui",
+              "npm-packs/theme-shared-and-basic",
+              "npm-packs/cms-kit-packs",
+              "npm-packs/vendor-libraries"
+            ]
+          },
+          {
+            "group": "CLI & Tooling",
+            "pages": [
+              "tooling/cli-overview",
+              "tooling/cli-commands",
+              "tooling/project-building",
+              "tooling/project-modification",
+              "tooling/service-proxying",
+              "tooling/bundling",
+              "tooling/install-libs",
+              "tooling/mcp"
+            ]
+          },
+          {
+            "group": "Templates",
+            "pages": [
+              "templates/overview",
+              "templates/app",
+              "templates/app-nolayers",
+              "templates/module",
+              "templates/console",
+              "templates/maui",
+              "templates/wpf",
+              "templates/angular"
+            ]
+          },
+          {
+            "group": "Source-Code Modules",
+            "pages": [
+              "source-code/overview"
+            ]
+          },
+          {
+            "group": "Key Flows",
+            "pages": [
+              "flows/application-startup",
+              "flows/http-request-pipeline",
+              "flows/unit-of-work-lifecycle",
+              "flows/authorization-pipeline",
+              "flows/distributed-event-publish",
+              "flows/background-job-execution",
+              "flows/tenant-resolution-flow",
+              "flows/dynamic-client-proxy-call",
+              "flows/audit-log-pipeline"
+            ]
+          },
+          {
+            "group": "Build, Test & Deployment",
+            "pages": [
+              "build/overview",
+              "build/scripts",
+              "build/github-workflows",
+              "build/nuget-and-npm",
+              "build/testing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Volo.Abp.Core runtime and AbpApplication bootstrapper",
+    "Modularity system (AbpModule, DependsOn, lifecycle contributors)",
+    "Dependency injection conventions (ITransientDependency/IScopedDependency/ISingletonDependency)",
+    "Dynamic proxy interception (Castle.Core)",
+    "DDD building blocks (Entities, Aggregates, Repositories, Domain Services)",
+    "Application Services and CrudAppService",
+    "Object extending system",
+    "Unit of Work and transactional API",
+    "Entity Framework Core integration with multi-db providers (SQL Server, PostgreSQL, MySQL, Oracle, SQLite)",
+    "MongoDB integration",
+    "Dapper integration",
+    "Memory DB",
+    "Authorization with permissions",
+    "Auditing and entity history",
+    "Validation (DataAnnotations and FluentValidation)",
+    "Localization with virtual file resources",
+    "Settings management with providers",
+    "Features and Global Features",
+    "Distributed caching with StackExchange.Redis",
+    "Object mapping with AutoMapper and Mapperly",
+    "Virtual File System",
+    "Text templating (Razor and Scriban)",
+    "Multi-tenancy with tenant resolvers",
+    "ASP.NET Core MVC integration with auto API controllers",
+    "Authentication (JWT, OAuth, OpenIdConnect)",
+    "Asset bundling pipeline",
+    "SignalR integration",
+    "Serilog integration",
+    "Swashbuckle (Swagger) integration",
+    "HTTP dynamic and static client proxies",
+    "Remote services and IdentityModel client",
+    "Local event bus",
+    "Distributed event bus (RabbitMQ, Kafka, Azure Service Bus, Dapr, Rebus)",
+    "Background jobs (in-memory, Hangfire, Quartz, RabbitMQ, TickerQ)",
+    "Background workers",
+    "BLOB storage providers (FileSystem, Azure, AWS, Google, Aliyun, Minio, Bunny, Memory, Database)",
+    "MVC UI tag helpers and Bootstrap themes",
+    "Theming and widgets",
+    "Blazor integration (Server, WebAssembly, MAUI, MudBlazor, Blazorise)",
+    "Distributed locking",
+    "Emailing and SMS",
+    "Imaging (ImageSharp, MagickNet, SkiaSharp)",
+    "AI abstractions",
+    "LDAP",
+    "Dapr integration",
+    "Identity module (users, roles, claim types, organization units)",
+    "Account module",
+    "OpenIddict module",
+    "IdentityServer module",
+    "Permission management module",
+    "Feature management module",
+    "Setting management module",
+    "Tenant management module",
+    "Audit logging module",
+    "Background jobs module",
+    "BLOB storing database module",
+    "CMS Kit module",
+    "Blogging module",
+    "Docs module",
+    "Users module",
+    "Basic theme module",
+    "Virtual file explorer module",
+    "Client simulation module",
+    "Angular ng-packs (core, components, theme-shared, theme-basic, identity, account, oauth, permission/feature/setting/tenant management, cms-kit, schematics, generators)",
+    "NPM packs for MVC UI (core, jquery, datatables, sweetalert2, toastr, signalR, sortable, etc.)",
+    "ABP CLI (new, install-libs, generate-proxy, bundle, build, suite, switch-to-*)",
+    "ABP Suite and Studio integration entry points",
+    "Solution templates (app, app-nolayers, module, console, maui, wpf, angular)",
+    "Source-code modules (paid/source-included module variants)",
+    "Build scripts and GitHub workflows"
+  ],
+  "publicApiSurface": [
+    "framework/src/Volo.Abp.Core/Volo/Abp/AbpApplicationFactory.cs",
+    "framework/src/Volo.Abp.Core/Volo/Abp/Modularity/AbpModule.cs",
+    "framework/src/Volo.Abp.Core/Volo/Abp/Modularity/DependsOnAttribute.cs",
+    "framework/src/Volo.Abp.Core/Volo/Abp/DependencyInjection",
+    "framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Entities/AggregateRoot.cs",
+    "framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Repositories",
+    "framework/src/Volo.Abp.Ddd.Application/Volo/Abp/Application/Services",
+    "framework/src/Volo.Abp.Uow/Volo/Abp/Uow/AmbientUnitOfWork.cs",
+    "framework/src/Volo.Abp.EntityFrameworkCore/Volo/Abp/EntityFrameworkCore/AbpDbContext.cs",
+    "framework/src/Volo.Abp.MongoDB/Volo/Abp/Domain/Repositories/MongoDB/MongoDbRepository.cs",
+    "framework/src/Volo.Abp.MultiTenancy/Volo/Abp/MultiTenancy/CurrentTenant.cs",
+    "framework/src/Volo.Abp.MultiTenancy/Volo/Abp/MultiTenancy/TenantResolver.cs",
+    "framework/src/Volo.Abp.Authorization/Volo/Abp/Authorization/AbpAuthorizationService.cs",
+    "framework/src/Volo.Abp.Auditing/Volo/Abp/Auditing/AuditingManager.cs",
+    "framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus",
+    "framework/src/Volo.Abp.BackgroundJobs/Volo/Abp/BackgroundJobs/DefaultBackgroundJobManager.cs",
+    "framework/src/Volo.Abp.Http.Client/Volo/Abp/Http/Client",
+    "framework/src/Volo.Abp.AspNetCore.Mvc/Volo/Abp/AspNetCore/Mvc",
+    "framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/Commands",
+    "modules/identity/src/Volo.Abp.Identity.Domain/Volo/Abp/Identity",
+    "modules/openiddict/src/Volo.Abp.OpenIddict.Domain/Volo/Abp/OpenIddict",
+    "modules/cms-kit/src/Volo.CmsKit.Domain/Volo/CmsKit",
+    "npm/ng-packs/packages/core/src",
+    "templates/app/aspnet-core/src"
+  ],
+  "wikiPagePlan": [
+    { "page": "index.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Core", "modules", "npm/ng-packs", "templates"], "reason": "Entry orientation page with architecture diagram and repo map" },
+    { "page": "overview/architecture.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Core/Volo/Abp"], "reason": "Top architecture: layers, modularity, DI, DDD, multi-tenancy" },
+    { "page": "overview/repository-layout.mdx", "depth": "reference", "sourcePaths": ["framework", "modules", "templates", "npm", "studio", "tools", "build", "deploy"], "reason": "Annotated top-level layout" },
+    { "page": "overview/solution-structure.mdx", "depth": "standard", "sourcePaths": ["templates/app/aspnet-core/src", "modules/identity/src"], "reason": "Layered project structure used by templates/modules" },
+    { "page": "overview/glossary.mdx", "depth": "reference", "sourcePaths": ["framework/src"], "reason": "Glossary of ABP-specific terms" },
+
+    { "page": "framework/core/overview.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Core"], "reason": "Core runtime entry" },
+    { "page": "framework/core/abp-application.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Core/Volo/Abp/AbpApplicationBase.cs", "framework/src/Volo.Abp.Core/Volo/Abp/AbpApplicationFactory.cs"], "reason": "Bootstrapper and host integration" },
+    { "page": "framework/core/modularity.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Core/Volo/Abp/Modularity"], "reason": "Module system core" },
+    { "page": "framework/core/dependency-injection.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Core/Volo/Abp/DependencyInjection"], "reason": "DI conventions and registrars" },
+    { "page": "framework/core/aspects-and-interceptors.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Core/Volo/Abp/Aspects", "framework/src/Volo.Abp.Core/Volo/Abp/DynamicProxy"], "reason": "Interception infra" },
+    { "page": "framework/core/exception-handling.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.ExceptionHandling", "framework/src/Volo.Abp.Core/Volo/Abp/ExceptionHandling"], "reason": "Exception subscribers and handlers" },
+    { "page": "framework/core/threading.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Threading"], "reason": "Async helpers and ambient scopes" },
+
+    { "page": "framework/ddd/overview.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Ddd.Domain", "framework/src/Volo.Abp.Ddd.Application"], "reason": "DDD layer overview" },
+    { "page": "framework/ddd/entities-and-aggregates.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Entities"], "reason": "Entity base classes and auditing" },
+    { "page": "framework/ddd/repositories.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Repositories"], "reason": "Repository abstractions and helpers" },
+    { "page": "framework/ddd/domain-services.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Services"], "reason": "Domain service base" },
+    { "page": "framework/ddd/application-services.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Ddd.Application/Volo/Abp/Application/Services"], "reason": "ApplicationService, CrudAppService" },
+    { "page": "framework/ddd/specifications.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Specifications"], "reason": "Specification pattern" },
+    { "page": "framework/ddd/object-extending.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.ObjectExtending"], "reason": "Object extension manager" },
+
+    { "page": "framework/data/overview.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Data"], "reason": "Common data infra" },
+    { "page": "framework/data/unit-of-work.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Uow"], "reason": "UoW lifecycle and transactional API" },
+    { "page": "framework/data/entity-framework-core.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.EntityFrameworkCore", "framework/src/Volo.Abp.EntityFrameworkCore.SqlServer", "framework/src/Volo.Abp.EntityFrameworkCore.PostgreSql", "framework/src/Volo.Abp.EntityFrameworkCore.MySQL", "framework/src/Volo.Abp.EntityFrameworkCore.Oracle", "framework/src/Volo.Abp.EntityFrameworkCore.Sqlite"], "reason": "AbpDbContext and providers" },
+    { "page": "framework/data/mongodb.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.MongoDB"], "reason": "Mongo repository and context" },
+    { "page": "framework/data/dapper.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Dapper"], "reason": "Dapper integration" },
+    { "page": "framework/data/memory-db.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.MemoryDb"], "reason": "In-memory DB" },
+    { "page": "framework/data/data-seeding-and-filtering.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Data", "framework/src/Volo.Abp.EntityFrameworkCore/Volo/Abp/EntityFrameworkCore/GlobalFilters"], "reason": "Data filters and seeders" },
+
+    { "page": "framework/cross-cutting/authorization.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Authorization"], "reason": "Auth and permissions" },
+    { "page": "framework/cross-cutting/auditing.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Auditing"], "reason": "Auditing manager and interceptor" },
+    { "page": "framework/cross-cutting/validation.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Validation"], "reason": "Validation pipeline" },
+    { "page": "framework/cross-cutting/localization.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Localization"], "reason": "Localization providers" },
+    { "page": "framework/cross-cutting/settings.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Settings"], "reason": "Setting providers" },
+    { "page": "framework/cross-cutting/features.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Features"], "reason": "Feature checker and providers" },
+    { "page": "framework/cross-cutting/global-features.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.GlobalFeatures"], "reason": "Compile-time global features" },
+    { "page": "framework/cross-cutting/caching.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Caching", "framework/src/Volo.Abp.Caching.StackExchangeRedis"], "reason": "Distributed cache" },
+    { "page": "framework/cross-cutting/object-mapping.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.ObjectMapping", "framework/src/Volo.Abp.AutoMapper", "framework/src/Volo.Abp.Mapperly"], "reason": "Object mapping" },
+    { "page": "framework/cross-cutting/virtual-file-system.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.VirtualFileSystem"], "reason": "VFS providers" },
+    { "page": "framework/cross-cutting/text-templating.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.TextTemplating", "framework/src/Volo.Abp.TextTemplating.Razor", "framework/src/Volo.Abp.TextTemplating.Scriban"], "reason": "Templating engines" },
+    { "page": "framework/cross-cutting/timing.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Timing"], "reason": "Clock/timezone" },
+    { "page": "framework/cross-cutting/guids.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Guids"], "reason": "Sequential GUID generator" },
+    { "page": "framework/cross-cutting/security.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Security"], "reason": "ICurrentUser/principal accessor" },
+    { "page": "framework/cross-cutting/json-serialization.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Json", "framework/src/Volo.Abp.Json.Newtonsoft", "framework/src/Volo.Abp.Json.SystemTextJson"], "reason": "Json serializer providers" },
+
+    { "page": "framework/multi-tenancy/overview.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.MultiTenancy"], "reason": "CurrentTenant and resolvers" },
+    { "page": "framework/multi-tenancy/tenant-resolution.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.MultiTenancy", "framework/src/Volo.Abp.AspNetCore.MultiTenancy"], "reason": "Resolve contributors" },
+    { "page": "framework/multi-tenancy/aspnetcore-multitenancy.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.MultiTenancy", "framework/src/Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy"], "reason": "Middleware and UI" },
+    { "page": "framework/multi-tenancy/data-filtering.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Data", "framework/src/Volo.Abp.EntityFrameworkCore/Volo/Abp/EntityFrameworkCore/GlobalFilters"], "reason": "Tenant filter integration" },
+
+    { "page": "framework/aspnetcore/overview.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore", "framework/src/Volo.Abp.AspNetCore.Abstractions"], "reason": "Host integration" },
+    { "page": "framework/aspnetcore/mvc.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Mvc"], "reason": "MVC integration and conventions" },
+    { "page": "framework/aspnetcore/authentication.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Authentication.JwtBearer", "framework/src/Volo.Abp.AspNetCore.Authentication.OAuth", "framework/src/Volo.Abp.AspNetCore.Authentication.OpenIdConnect"], "reason": "Auth schemes" },
+    { "page": "framework/aspnetcore/bundling.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Bundling", "framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bundling"], "reason": "Asset bundling" },
+    { "page": "framework/aspnetcore/signalr.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.SignalR"], "reason": "SignalR hub conventions" },
+    { "page": "framework/aspnetcore/serilog.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Serilog"], "reason": "Serilog enrichers" },
+    { "page": "framework/aspnetcore/swashbuckle.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Swashbuckle"], "reason": "Swagger integration" },
+    { "page": "framework/aspnetcore/api-versioning.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.ApiVersioning.Abstractions"], "reason": "API versioning abstractions" },
+
+    { "page": "framework/http/overview.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Http", "framework/src/Volo.Abp.Http.Abstractions"], "reason": "HTTP abstractions" },
+    { "page": "framework/http/dynamic-client-proxy.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Http.Client/Volo/Abp/Http/Client/DynamicProxying"], "reason": "Dynamic proxy interceptor" },
+    { "page": "framework/http/static-client-proxy.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Http.Client/Volo/Abp/Http/Client/StaticProxying", "framework/src/Volo.Abp.Http.Client/Volo/Abp/Http/Client/ClientProxying"], "reason": "Generated proxy infra" },
+    { "page": "framework/http/identity-model.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Http.Client.IdentityModel", "framework/src/Volo.Abp.IdentityModel"], "reason": "Token acquisition" },
+    { "page": "framework/http/remote-services.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.RemoteServices"], "reason": "Remote service options" },
+
+    { "page": "framework/event-bus/overview.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.EventBus", "framework/src/Volo.Abp.EventBus.Abstractions"], "reason": "Event bus abstractions" },
+    { "page": "framework/event-bus/local-event-bus.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Local"], "reason": "Local in-process" },
+    { "page": "framework/event-bus/distributed-event-bus.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Distributed"], "reason": "Outbox/inbox infra" },
+    { "page": "framework/event-bus/rabbitmq.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.EventBus.RabbitMQ", "framework/src/Volo.Abp.RabbitMQ"], "reason": "RabbitMQ provider" },
+    { "page": "framework/event-bus/kafka.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.EventBus.Kafka", "framework/src/Volo.Abp.Kafka"], "reason": "Kafka provider" },
+    { "page": "framework/event-bus/azure-service-bus.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.EventBus.Azure", "framework/src/Volo.Abp.AzureServiceBus"], "reason": "Azure provider" },
+    { "page": "framework/event-bus/dapr.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.EventBus.Dapr"], "reason": "Dapr provider" },
+    { "page": "framework/event-bus/rebus.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.EventBus.Rebus"], "reason": "Rebus provider" },
+
+    { "page": "framework/background/overview.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.BackgroundJobs", "framework/src/Volo.Abp.BackgroundWorkers"], "reason": "Background subsystems" },
+    { "page": "framework/background/background-jobs.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.BackgroundJobs", "framework/src/Volo.Abp.BackgroundJobs.Abstractions"], "reason": "Job manager and worker" },
+    { "page": "framework/background/background-workers.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.BackgroundWorkers"], "reason": "Worker host" },
+    { "page": "framework/background/hangfire.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.BackgroundJobs.HangFire", "framework/src/Volo.Abp.BackgroundWorkers.Hangfire", "framework/src/Volo.Abp.HangFire"], "reason": "Hangfire provider" },
+    { "page": "framework/background/quartz.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.BackgroundJobs.Quartz", "framework/src/Volo.Abp.BackgroundWorkers.Quartz", "framework/src/Volo.Abp.Quartz"], "reason": "Quartz provider" },
+    { "page": "framework/background/rabbitmq.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.BackgroundJobs.RabbitMQ"], "reason": "RabbitMQ jobs" },
+    { "page": "framework/background/tickerq.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.BackgroundJobs.TickerQ", "framework/src/Volo.Abp.BackgroundWorkers.TickerQ", "framework/src/Volo.Abp.TickerQ"], "reason": "TickerQ provider" },
+
+    { "page": "framework/blob-storing/overview.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.BlobStoring"], "reason": "BLOB store core" },
+    { "page": "framework/blob-storing/providers.mdx", "depth": "reference", "sourcePaths": ["framework/src/Volo.Abp.BlobStoring.Aliyun", "framework/src/Volo.Abp.BlobStoring.Aws", "framework/src/Volo.Abp.BlobStoring.Azure", "framework/src/Volo.Abp.BlobStoring.Bunny", "framework/src/Volo.Abp.BlobStoring.FileSystem", "framework/src/Volo.Abp.BlobStoring.Google", "framework/src/Volo.Abp.BlobStoring.Memory", "framework/src/Volo.Abp.BlobStoring.Minio"], "reason": "Enumerate providers" },
+
+    { "page": "framework/ui-mvc/overview.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Mvc.UI", "framework/src/Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared"], "reason": "MVC UI infra" },
+    { "page": "framework/ui-mvc/bootstrap-tag-helpers.mdx", "depth": "reference", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bootstrap"], "reason": "Tag helpers" },
+    { "page": "framework/ui-mvc/themes.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared", "modules/basic-theme"], "reason": "Theme system" },
+    { "page": "framework/ui-mvc/widgets.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Mvc.UI.Widgets"], "reason": "Widget framework" },
+    { "page": "framework/ui-mvc/navigation.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.UI.Navigation", "framework/src/Volo.Abp.UI"], "reason": "Menu providers" },
+
+    { "page": "framework/blazor/overview.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Components", "framework/src/Volo.Abp.AspNetCore.Components.Web"], "reason": "Blazor core integration" },
+    { "page": "framework/blazor/server.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Components.Server"], "reason": "Server Blazor" },
+    { "page": "framework/blazor/webassembly.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Components.WebAssembly", "framework/src/Volo.Abp.Autofac.WebAssembly"], "reason": "WASM" },
+    { "page": "framework/blazor/maui.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore.Components.MauiBlazor", "framework/src/Volo.Abp.Maui.Client"], "reason": "MAUI Blazor host" },
+    { "page": "framework/blazor/mudblazor.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.MudBlazorUI", "framework/src/Volo.Abp.AspNetCore.Components.Server.Theming.MudBlazor", "framework/src/Volo.Abp.AspNetCore.Components.WebAssembly.Theming.MudBlazor"], "reason": "MudBlazor theme" },
+    { "page": "framework/blazor/blazorise.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.BlazoriseUI"], "reason": "Blazorise theme" },
+
+    { "page": "framework/infra/distributed-locking.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.DistributedLocking", "framework/src/Volo.Abp.DistributedLocking.Abstractions", "framework/src/Volo.Abp.DistributedLocking.Dapr"], "reason": "Lock providers" },
+    { "page": "framework/infra/emailing.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Emailing", "framework/src/Volo.Abp.MailKit"], "reason": "Email senders" },
+    { "page": "framework/infra/sms.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Sms", "framework/src/Volo.Abp.Sms.Aliyun", "framework/src/Volo.Abp.Sms.TencentCloud"], "reason": "SMS senders" },
+    { "page": "framework/infra/imaging.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Imaging.Abstractions", "framework/src/Volo.Abp.Imaging.ImageSharp", "framework/src/Volo.Abp.Imaging.MagickNet", "framework/src/Volo.Abp.Imaging.SkiaSharp", "framework/src/Volo.Abp.Imaging.AspNetCore"], "reason": "Imaging providers" },
+    { "page": "framework/infra/ai.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.AI", "framework/src/Volo.Abp.AI.Abstractions"], "reason": "AI abstractions" },
+    { "page": "framework/infra/ldap.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Ldap", "framework/src/Volo.Abp.Ldap.Abstractions"], "reason": "LDAP" },
+    { "page": "framework/infra/dapr.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Dapr", "framework/src/Volo.Abp.Http.Client.Dapr", "framework/src/Volo.Abp.AspNetCore.Mvc.Dapr"], "reason": "Dapr" },
+    { "page": "framework/infra/minify.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Minify"], "reason": "Minification" },
+    { "page": "framework/infra/auto-mapper.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.AutoMapper", "framework/src/Volo.Abp.LuckyPenny.AutoMapper"], "reason": "AutoMapper provider" },
+    { "page": "framework/infra/mapperly.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Mapperly"], "reason": "Mapperly provider" },
+    { "page": "framework/infra/fluent-validation.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.FluentValidation"], "reason": "FluentValidation integration" },
+    { "page": "framework/infra/autofac.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Autofac"], "reason": "Autofac DI" },
+    { "page": "framework/infra/castle-core.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Castle.Core"], "reason": "Castle.Core proxy" },
+
+    { "page": "modules/overview.mdx", "depth": "standard", "sourcePaths": ["modules"], "reason": "Modules folder overview" },
+    { "page": "modules/identity.mdx", "depth": "deep", "sourcePaths": ["modules/identity/src"], "reason": "Identity module" },
+    { "page": "modules/account.mdx", "depth": "deep", "sourcePaths": ["modules/account/src"], "reason": "Account module" },
+    { "page": "modules/openiddict.mdx", "depth": "deep", "sourcePaths": ["modules/openiddict/src"], "reason": "OpenIddict integration" },
+    { "page": "modules/identity-server.mdx", "depth": "standard", "sourcePaths": ["modules/identityserver/src"], "reason": "IdentityServer" },
+    { "page": "modules/permission-management.mdx", "depth": "standard", "sourcePaths": ["modules/permission-management/src"], "reason": "Permission management" },
+    { "page": "modules/feature-management.mdx", "depth": "standard", "sourcePaths": ["modules/feature-management/src"], "reason": "Feature management" },
+    { "page": "modules/setting-management.mdx", "depth": "standard", "sourcePaths": ["modules/setting-management/src"], "reason": "Setting management" },
+    { "page": "modules/tenant-management.mdx", "depth": "standard", "sourcePaths": ["modules/tenant-management/src"], "reason": "Tenant management" },
+    { "page": "modules/audit-logging.mdx", "depth": "standard", "sourcePaths": ["modules/audit-logging/src"], "reason": "Audit logging persistence" },
+    { "page": "modules/background-jobs.mdx", "depth": "standard", "sourcePaths": ["modules/background-jobs/src"], "reason": "Background jobs persistence" },
+    { "page": "modules/blob-storing-database.mdx", "depth": "brief", "sourcePaths": ["modules/blob-storing-database/src"], "reason": "DB blob provider" },
+    { "page": "modules/cms-kit.mdx", "depth": "deep", "sourcePaths": ["modules/cms-kit/src"], "reason": "CMS Kit" },
+    { "page": "modules/blogging.mdx", "depth": "standard", "sourcePaths": ["modules/blogging/src"], "reason": "Blogging" },
+    { "page": "modules/docs.mdx", "depth": "standard", "sourcePaths": ["modules/docs"], "reason": "Docs module" },
+    { "page": "modules/users.mdx", "depth": "brief", "sourcePaths": ["modules/users/src"], "reason": "Shared users module" },
+    { "page": "modules/basic-theme.mdx", "depth": "brief", "sourcePaths": ["modules/basic-theme/src"], "reason": "Basic theme" },
+    { "page": "modules/virtual-file-explorer.mdx", "depth": "brief", "sourcePaths": ["modules/virtual-file-explorer/src"], "reason": "VFS explorer UI" },
+    { "page": "modules/client-simulation.mdx", "depth": "brief", "sourcePaths": ["modules/client-simulation/src"], "reason": "Client simulation" },
+
+    { "page": "ng-packs/overview.mdx", "depth": "standard", "sourcePaths": ["npm/ng-packs"], "reason": "Angular monorepo" },
+    { "page": "ng-packs/core.mdx", "depth": "deep", "sourcePaths": ["npm/ng-packs/packages/core"], "reason": "Core ng package" },
+    { "page": "ng-packs/components.mdx", "depth": "standard", "sourcePaths": ["npm/ng-packs/packages/components"], "reason": "Reusable components" },
+    { "page": "ng-packs/theme-shared.mdx", "depth": "standard", "sourcePaths": ["npm/ng-packs/packages/theme-shared"], "reason": "Theme shared" },
+    { "page": "ng-packs/theme-basic.mdx", "depth": "brief", "sourcePaths": ["npm/ng-packs/packages/theme-basic"], "reason": "Theme basic" },
+    { "page": "ng-packs/account.mdx", "depth": "standard", "sourcePaths": ["npm/ng-packs/packages/account"], "reason": "Account ng" },
+    { "page": "ng-packs/identity.mdx", "depth": "standard", "sourcePaths": ["npm/ng-packs/packages/identity"], "reason": "Identity ng" },
+    { "page": "ng-packs/permission-management.mdx", "depth": "brief", "sourcePaths": ["npm/ng-packs/packages/permission-management"], "reason": "Permission management ng" },
+    { "page": "ng-packs/feature-management.mdx", "depth": "brief", "sourcePaths": ["npm/ng-packs/packages/feature-management"], "reason": "Feature management ng" },
+    { "page": "ng-packs/setting-management.mdx", "depth": "brief", "sourcePaths": ["npm/ng-packs/packages/setting-management"], "reason": "Setting management ng" },
+    { "page": "ng-packs/tenant-management.mdx", "depth": "brief", "sourcePaths": ["npm/ng-packs/packages/tenant-management"], "reason": "Tenant management ng" },
+    { "page": "ng-packs/cms-kit.mdx", "depth": "brief", "sourcePaths": ["npm/ng-packs/packages/cms-kit"], "reason": "Cms-kit ng" },
+    { "page": "ng-packs/oauth.mdx", "depth": "brief", "sourcePaths": ["npm/ng-packs/packages/oauth"], "reason": "OAuth ng" },
+    { "page": "ng-packs/schematics-generators.mdx", "depth": "standard", "sourcePaths": ["npm/ng-packs/packages/schematics", "npm/ng-packs/packages/generators"], "reason": "CLI for ng" },
+
+    { "page": "npm-packs/overview.mdx", "depth": "standard", "sourcePaths": ["npm/packs"], "reason": "MVC npm packs" },
+    { "page": "npm-packs/core-and-utils.mdx", "depth": "standard", "sourcePaths": ["npm/packs/core", "npm/packs/utils"], "reason": "Core JS lib" },
+    { "page": "npm-packs/aspnetcore-mvc-ui.mdx", "depth": "standard", "sourcePaths": ["npm/packs/aspnetcore.mvc.ui", "npm/packs/aspnetcore.mvc.ui.theme.shared", "npm/packs/aspnetcore.mvc.ui.theme.basic"], "reason": "MVC UI scripts" },
+    { "page": "npm-packs/theme-shared-and-basic.mdx", "depth": "brief", "sourcePaths": ["npm/packs/aspnetcore.components.server.theming", "npm/packs/aspnetcore.components.server.basictheme"], "reason": "Blazor server theme scripts" },
+    { "page": "npm-packs/cms-kit-packs.mdx", "depth": "brief", "sourcePaths": ["npm/packs/cms-kit", "npm/packs/cms-kit.admin", "npm/packs/cms-kit.public", "npm/packs/blogging"], "reason": "CMS scripts" },
+    { "page": "npm-packs/vendor-libraries.mdx", "depth": "reference", "sourcePaths": ["npm/packs"], "reason": "Enumerate vendor libs" },
+
+    { "page": "tooling/cli-overview.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Cli", "framework/src/Volo.Abp.Cli.Core"], "reason": "ABP CLI architecture" },
+    { "page": "tooling/cli-commands.mdx", "depth": "reference", "sourcePaths": ["framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/Commands"], "reason": "Enumerate CLI commands" },
+    { "page": "tooling/project-building.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectBuilding"], "reason": "Project building pipeline" },
+    { "page": "tooling/project-modification.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectModification"], "reason": "Add-package/add-module" },
+    { "page": "tooling/service-proxying.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ServiceProxying"], "reason": "Proxy generators (C#, Angular, JS)" },
+    { "page": "tooling/bundling.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/Bundling"], "reason": "WASM bundling pipeline" },
+    { "page": "tooling/install-libs.mdx", "depth": "standard", "sourcePaths": ["framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/LIbs"], "reason": "Install client libs" },
+    { "page": "tooling/mcp.mdx", "depth": "brief", "sourcePaths": ["framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/Commands/McpCommand.cs"], "reason": "MCP entry" },
+
+    { "page": "templates/overview.mdx", "depth": "standard", "sourcePaths": ["templates"], "reason": "Templates overview" },
+    { "page": "templates/app.mdx", "depth": "deep", "sourcePaths": ["templates/app"], "reason": "Layered app template" },
+    { "page": "templates/app-nolayers.mdx", "depth": "standard", "sourcePaths": ["templates/app-nolayers"], "reason": "Single-project template" },
+    { "page": "templates/module.mdx", "depth": "standard", "sourcePaths": ["templates/module"], "reason": "Module template" },
+    { "page": "templates/console.mdx", "depth": "brief", "sourcePaths": ["templates/console"], "reason": "Console template" },
+    { "page": "templates/maui.mdx", "depth": "brief", "sourcePaths": ["templates/maui"], "reason": "MAUI template" },
+    { "page": "templates/wpf.mdx", "depth": "brief", "sourcePaths": ["templates/wpf"], "reason": "WPF template" },
+    { "page": "templates/angular.mdx", "depth": "standard", "sourcePaths": ["templates/app/angular", "templates/module/angular"], "reason": "Angular template" },
+
+    { "page": "source-code/overview.mdx", "depth": "reference", "sourcePaths": ["source-code", "studio/source-codes"], "reason": "Enumerate source-code variants" },
+
+    { "page": "flows/application-startup.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Core/Volo/Abp"], "reason": "Bootstrapping flow" },
+    { "page": "flows/http-request-pipeline.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.AspNetCore", "framework/src/Volo.Abp.AspNetCore.Mvc"], "reason": "Request pipeline" },
+    { "page": "flows/unit-of-work-lifecycle.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Uow", "framework/src/Volo.Abp.AspNetCore.Mvc/Volo/Abp/AspNetCore/Mvc/Uow"], "reason": "UoW lifecycle" },
+    { "page": "flows/authorization-pipeline.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Authorization", "framework/src/Volo.Abp.AspNetCore"], "reason": "Auth pipeline" },
+    { "page": "flows/distributed-event-publish.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Distributed"], "reason": "Outbox publish flow" },
+    { "page": "flows/background-job-execution.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.BackgroundJobs"], "reason": "Job execution" },
+    { "page": "flows/tenant-resolution-flow.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.MultiTenancy", "framework/src/Volo.Abp.AspNetCore.MultiTenancy"], "reason": "Tenant resolution" },
+    { "page": "flows/dynamic-client-proxy-call.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Http.Client"], "reason": "Dynamic proxy call" },
+    { "page": "flows/audit-log-pipeline.mdx", "depth": "deep", "sourcePaths": ["framework/src/Volo.Abp.Auditing", "framework/src/Volo.Abp.AspNetCore.Mvc/Volo/Abp/AspNetCore/Mvc/Auditing"], "reason": "Audit log flow" },
+
+    { "page": "build/overview.mdx", "depth": "standard", "sourcePaths": ["build", "Directory.Build.props", "Directory.Packages.props", "common.props"], "reason": "Build configuration" },
+    { "page": "build/scripts.mdx", "depth": "reference", "sourcePaths": ["build", "tools", "deploy"], "reason": "Enumerate PowerShell scripts" },
+    { "page": "build/github-workflows.mdx", "depth": "reference", "sourcePaths": [".github/workflows"], "reason": "CI workflows" },
+    { "page": "build/nuget-and-npm.mdx", "depth": "standard", "sourcePaths": ["nupkg", "build", "deploy", "npm"], "reason": "Package publishing" },
+    { "page": "build/testing.mdx", "depth": "standard", "sourcePaths": ["framework/test", "framework/src/Volo.Abp.TestBase"], "reason": "Test infra" }
+  ],
+  "wikiGenerationShards": [
+    {
+      "description": "Overview & home",
+      "pages": ["index.mdx", "overview/architecture.mdx", "overview/repository-layout.mdx", "overview/solution-structure.mdx", "overview/glossary.mdx"],
+      "sourcePaths": ["framework/src/Volo.Abp.Core", "modules", "templates", "npm/ng-packs", "studio", "tools", "build", "deploy"],
+      "depthMix": "1 deep home, 1 deep architecture, 2 reference/standard, 1 reference glossary"
+    },
+    {
+      "description": "Core runtime & DDD building blocks",
+      "pages": ["framework/core/overview.mdx", "framework/core/abp-application.mdx", "framework/core/modularity.mdx", "framework/core/dependency-injection.mdx", "framework/core/aspects-and-interceptors.mdx", "framework/core/exception-handling.mdx", "framework/core/threading.mdx", "framework/ddd/overview.mdx", "framework/ddd/entities-and-aggregates.mdx", "framework/ddd/repositories.mdx", "framework/ddd/domain-services.mdx", "framework/ddd/application-services.mdx", "framework/ddd/specifications.mdx", "framework/ddd/object-extending.mdx"],
+      "sourcePaths": ["framework/src/Volo.Abp.Core", "framework/src/Volo.Abp.Ddd.Domain", "framework/src/Volo.Abp.Ddd.Application", "framework/src/Volo.Abp.Specifications", "framework/src/Volo.Abp.ObjectExtending", "framework/src/Volo.Abp.ExceptionHandling", "framework/src/Volo.Abp.Threading"],
+      "depthMix": "5 deep, 6 standard, 3 brief"
+    },
+    {
+      "description": "Data persistence & cross-cutting concerns",
+      "pages": ["framework/data/overview.mdx", "framework/data/unit-of-work.mdx", "framework/data/entity-framework-core.mdx", "framework/data/mongodb.mdx", "framework/data/dapper.mdx", "framework/data/memory-db.mdx", "framework/data/data-seeding-and-filtering.mdx", "framework/cross-cutting/authorization.mdx", "framework/cross-cutting/auditing.mdx", "framework/cross-cutting/validation.mdx", "framework/cross-cutting/localization.mdx", "framework/cross-cutting/settings.mdx", "framework/cross-cutting/features.mdx", "framework/cross-cutting/global-features.mdx", "framework/cross-cutting/caching.mdx", "framework/cross-cutting/object-mapping.mdx", "framework/cross-cutting/virtual-file-system.mdx", "framework/cross-cutting/text-templating.mdx", "framework/cross-cutting/timing.mdx", "framework/cross-cutting/guids.mdx", "framework/cross-cutting/security.mdx", "framework/cross-cutting/json-serialization.mdx"],
+      "sourcePaths": ["framework/src/Volo.Abp.Data", "framework/src/Volo.Abp.Uow", "framework/src/Volo.Abp.EntityFrameworkCore", "framework/src/Volo.Abp.MongoDB", "framework/src/Volo.Abp.Dapper", "framework/src/Volo.Abp.MemoryDb", "framework/src/Volo.Abp.Authorization", "framework/src/Volo.Abp.Auditing", "framework/src/Volo.Abp.Validation", "framework/src/Volo.Abp.Localization", "framework/src/Volo.Abp.Settings", "framework/src/Volo.Abp.Features", "framework/src/Volo.Abp.GlobalFeatures", "framework/src/Volo.Abp.Caching", "framework/src/Volo.Abp.Caching.StackExchangeRedis", "framework/src/Volo.Abp.ObjectMapping", "framework/src/Volo.Abp.AutoMapper", "framework/src/Volo.Abp.Mapperly", "framework/src/Volo.Abp.VirtualFileSystem", "framework/src/Volo.Abp.TextTemplating", "framework/src/Volo.Abp.Timing", "framework/src/Volo.Abp.Guids", "framework/src/Volo.Abp.Security", "framework/src/Volo.Abp.Json"],
+      "depthMix": "5 deep, 12 standard, 5 brief"
+    },
+    {
+      "description": "Multi-tenancy, ASP.NET Core integration, HTTP client, MVC UI",
+      "pages": ["framework/multi-tenancy/overview.mdx", "framework/multi-tenancy/tenant-resolution.mdx", "framework/multi-tenancy/aspnetcore-multitenancy.mdx", "framework/multi-tenancy/data-filtering.mdx", "framework/aspnetcore/overview.mdx", "framework/aspnetcore/mvc.mdx", "framework/aspnetcore/authentication.mdx", "framework/aspnetcore/bundling.mdx", "framework/aspnetcore/signalr.mdx", "framework/aspnetcore/serilog.mdx", "framework/aspnetcore/swashbuckle.mdx", "framework/aspnetcore/api-versioning.mdx", "framework/http/overview.mdx", "framework/http/dynamic-client-proxy.mdx", "framework/http/static-client-proxy.mdx", "framework/http/identity-model.mdx", "framework/http/remote-services.mdx", "framework/ui-mvc/overview.mdx", "framework/ui-mvc/bootstrap-tag-helpers.mdx", "framework/ui-mvc/themes.mdx", "framework/ui-mvc/widgets.mdx", "framework/ui-mvc/navigation.mdx"],
+      "sourcePaths": ["framework/src/Volo.Abp.MultiTenancy", "framework/src/Volo.Abp.AspNetCore.MultiTenancy", "framework/src/Volo.Abp.AspNetCore", "framework/src/Volo.Abp.AspNetCore.Mvc", "framework/src/Volo.Abp.AspNetCore.Authentication.JwtBearer", "framework/src/Volo.Abp.AspNetCore.Authentication.OAuth", "framework/src/Volo.Abp.AspNetCore.Authentication.OpenIdConnect", "framework/src/Volo.Abp.AspNetCore.Bundling", "framework/src/Volo.Abp.AspNetCore.SignalR", "framework/src/Volo.Abp.AspNetCore.Serilog", "framework/src/Volo.Abp.Swashbuckle", "framework/src/Volo.Abp.ApiVersioning.Abstractions", "framework/src/Volo.Abp.Http", "framework/src/Volo.Abp.Http.Client", "framework/src/Volo.Abp.IdentityModel", "framework/src/Volo.Abp.RemoteServices", "framework/src/Volo.Abp.AspNetCore.Mvc.UI", "framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bootstrap", "framework/src/Volo.Abp.AspNetCore.Mvc.UI.Widgets", "framework/src/Volo.Abp.UI.Navigation"],
+      "depthMix": "3 deep, 14 standard, 5 brief"
+    },
+    {
+      "description": "Event bus, background jobs, blob storage, Blazor, other infra",
+      "pages": ["framework/event-bus/overview.mdx", "framework/event-bus/local-event-bus.mdx", "framework/event-bus/distributed-event-bus.mdx", "framework/event-bus/rabbitmq.mdx", "framework/event-bus/kafka.mdx", "framework/event-bus/azure-service-bus.mdx", "framework/event-bus/dapr.mdx", "framework/event-bus/rebus.mdx", "framework/background/overview.mdx", "framework/background/background-jobs.mdx", "framework/background/background-workers.mdx", "framework/background/hangfire.mdx", "framework/background/quartz.mdx", "framework/background/rabbitmq.mdx", "framework/background/tickerq.mdx", "framework/blob-storing/overview.mdx", "framework/blob-storing/providers.mdx", "framework/blazor/overview.mdx", "framework/blazor/server.mdx", "framework/blazor/webassembly.mdx", "framework/blazor/maui.mdx", "framework/blazor/mudblazor.mdx", "framework/blazor/blazorise.mdx", "framework/infra/distributed-locking.mdx", "framework/infra/emailing.mdx", "framework/infra/sms.mdx", "framework/infra/imaging.mdx", "framework/infra/ai.mdx", "framework/infra/ldap.mdx", "framework/infra/dapr.mdx", "framework/infra/minify.mdx", "framework/infra/auto-mapper.mdx", "framework/infra/mapperly.mdx", "framework/infra/fluent-validation.mdx", "framework/infra/autofac.mdx", "framework/infra/castle-core.mdx"],
+      "sourcePaths": ["framework/src/Volo.Abp.EventBus", "framework/src/Volo.Abp.EventBus.RabbitMQ", "framework/src/Volo.Abp.EventBus.Kafka", "framework/src/Volo.Abp.EventBus.Azure", "framework/src/Volo.Abp.EventBus.Dapr", "framework/src/Volo.Abp.EventBus.Rebus", "framework/src/Volo.Abp.BackgroundJobs", "framework/src/Volo.Abp.BackgroundWorkers", "framework/src/Volo.Abp.BlobStoring", "framework/src/Volo.Abp.AspNetCore.Components", "framework/src/Volo.Abp.AspNetCore.Components.Server", "framework/src/Volo.Abp.AspNetCore.Components.WebAssembly", "framework/src/Volo.Abp.MudBlazorUI", "framework/src/Volo.Abp.BlazoriseUI", "framework/src/Volo.Abp.DistributedLocking", "framework/src/Volo.Abp.Emailing", "framework/src/Volo.Abp.Sms", "framework/src/Volo.Abp.Imaging.Abstractions", "framework/src/Volo.Abp.AI", "framework/src/Volo.Abp.Ldap", "framework/src/Volo.Abp.Dapr", "framework/src/Volo.Abp.Minify", "framework/src/Volo.Abp.AutoMapper", "framework/src/Volo.Abp.Mapperly", "framework/src/Volo.Abp.FluentValidation", "framework/src/Volo.Abp.Autofac", "framework/src/Volo.Abp.Castle.Core"],
+      "depthMix": "5 deep, 8 standard, 22 brief"
+    },
+    {
+      "description": "Pre-built modules (.NET)",
+      "pages": ["modules/overview.mdx", "modules/identity.mdx", "modules/account.mdx", "modules/openiddict.mdx", "modules/identity-server.mdx", "modules/permission-management.mdx", "modules/feature-management.mdx", "modules/setting-management.mdx", "modules/tenant-management.mdx", "modules/audit-logging.mdx", "modules/background-jobs.mdx", "modules/blob-storing-database.mdx", "modules/cms-kit.mdx", "modules/blogging.mdx", "modules/docs.mdx", "modules/users.mdx", "modules/basic-theme.mdx", "modules/virtual-file-explorer.mdx", "modules/client-simulation.mdx"],
+      "sourcePaths": ["modules"],
+      "depthMix": "4 deep, 8 standard, 7 brief"
+    },
+    {
+      "description": "Angular ng-packs and NPM packs",
+      "pages": ["ng-packs/overview.mdx", "ng-packs/core.mdx", "ng-packs/components.mdx", "ng-packs/theme-shared.mdx", "ng-packs/theme-basic.mdx", "ng-packs/account.mdx", "ng-packs/identity.mdx", "ng-packs/permission-management.mdx", "ng-packs/feature-management.mdx", "ng-packs/setting-management.mdx", "ng-packs/tenant-management.mdx", "ng-packs/cms-kit.mdx", "ng-packs/oauth.mdx", "ng-packs/schematics-generators.mdx", "npm-packs/overview.mdx", "npm-packs/core-and-utils.mdx", "npm-packs/aspnetcore-mvc-ui.mdx", "npm-packs/theme-shared-and-basic.mdx", "npm-packs/cms-kit-packs.mdx", "npm-packs/vendor-libraries.mdx"],
+      "sourcePaths": ["npm/ng-packs", "npm/packs"],
+      "depthMix": "1 deep, 9 standard, 9 brief, 1 reference"
+    },
+    {
+      "description": "CLI tooling, templates, source-code, key flows, build",
+      "pages": ["tooling/cli-overview.mdx", "tooling/cli-commands.mdx", "tooling/project-building.mdx", "tooling/project-modification.mdx", "tooling/service-proxying.mdx", "tooling/bundling.mdx", "tooling/install-libs.mdx", "tooling/mcp.mdx", "templates/overview.mdx", "templates/app.mdx", "templates/app-nolayers.mdx", "templates/module.mdx", "templates/console.mdx", "templates/maui.mdx", "templates/wpf.mdx", "templates/angular.mdx", "source-code/overview.mdx", "flows/application-startup.mdx", "flows/http-request-pipeline.mdx", "flows/unit-of-work-lifecycle.mdx", "flows/authorization-pipeline.mdx", "flows/distributed-event-publish.mdx", "flows/background-job-execution.mdx", "flows/tenant-resolution-flow.mdx", "flows/dynamic-client-proxy-call.mdx", "flows/audit-log-pipeline.mdx", "build/overview.mdx", "build/scripts.mdx", "build/github-workflows.mdx", "build/nuget-and-npm.mdx", "build/testing.mdx"],
+      "sourcePaths": ["framework/src/Volo.Abp.Cli", "framework/src/Volo.Abp.Cli.Core", "templates", "source-code", "studio/source-codes", "framework/src/Volo.Abp.Core", "framework/src/Volo.Abp.AspNetCore", "framework/src/Volo.Abp.Uow", "framework/src/Volo.Abp.Authorization", "framework/src/Volo.Abp.EventBus", "framework/src/Volo.Abp.BackgroundJobs", "framework/src/Volo.Abp.MultiTenancy", "framework/src/Volo.Abp.Http.Client", "framework/src/Volo.Abp.Auditing", "build", "tools", "deploy", ".github/workflows", "nupkg", "framework/test", "framework/src/Volo.Abp.TestBase"],
+      "depthMix": "10 deep flows, 4 standard, 8 brief, 4 reference"
+    }
+  ]
+}

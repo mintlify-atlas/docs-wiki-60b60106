@@ -1,0 +1,198 @@
+---
+title: "Build Overview: SDK Pin, Props and Solution Layout"
+sidebarTitle: "Overview"
+description: "How the ABP monorepo standardises target framework, language version, central package management, and the SDK pin that every project inherits."
+---
+
+The ABP monorepo is hundreds of .NET projects under one git tree, so it leans hard on MSBuild conventions: every project imports `common.props`, central package management forbids version specs in `<PackageReference>`, a single `global.json` pins the .NET SDK, and the solution file `framework/Volo.Abp.slnx` (along with per-module `.slnx`/`.sln` files) groups projects for IDE consumption. This page documents the moving parts so you can find the convention behind a given build error.
+
+## Files at a glance
+
+| File | Path | Purpose |
+| --- | --- | --- |
+| `global.json` | `/global.json` | Pins the .NET SDK version with `latestFeature` roll-forward |
+| `Directory.Build.props` | `/Directory.Build.props` | Auto-detects test projects and adds `coverlet.collector` |
+| `Directory.Packages.props` | `/Directory.Packages.props` | Central Package Management — every version lives here |
+| `common.props` | `/common.props` | NuGet metadata, `LangVersion`, embedded source, `*.abppkg` packing |
+| `common.test.props` | `/common.test.props` | Test-project flags (no assembly attributes, doc disabled, etc.) |
+| `configureawait.props` | `/configureawait.props` | Adds `ConfigureAwait.Fody` in Release |
+| `framework/Volo.Abp.slnx` | `/framework/Volo.Abp.slnx` | Top-level framework solution (the `.slnx` XML format) |
+| `source-code/SourceCodes.slnx` | `/source-code/SourceCodes.slnx` | Source-code references solution |
+| `NuGet.Config` | `/NuGet.Config` | Restore feeds |
+| `NuGet.md` | `/NuGet.md` | The README packaged into every NuGet |
+| `delete-bin-obj.ps1` | `/delete-bin-obj.ps1` | Nuclear "clean" — wipes every `bin`/`obj` |
+
+## .NET SDK pin
+
+```json
+// global.json
+{
+  "sdk": {
+    "version": "10.0.100",
+    "rollForward": "latestFeature"
+  }
+}
+```
+
+The `latestFeature` policy means the SDK will roll forward to newer feature bands within `10.0.x` but not to `10.1.x` or higher. CI installs `10.0.x` via `actions/setup-dotnet` (see `.github/workflows/build-and-test.yml`).
+
+## Central Package Management
+
+`Directory.Packages.props` opts in to MSBuild CPM:
+
+```xml
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Autofac" Version="9.1.0" />
+    <PackageVersion Include="MudBlazor" Version="9.4.0" />
+    <PackageVersion Include="Blazorise" Version="2.1.3" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.7" />
+    <!-- ...hundreds more -->
+  </ItemGroup>
+</Project>
+```
+
+Every `.csproj` writes `<PackageReference Include="Autofac" />` **without** a `Version` attribute. Floating versions are enabled (e.g. `10.0.*`) but in practice the file pins explicit versions for reproducibility. When you upgrade a dependency, you change exactly one line here and the `nuget-packages-version-change-detector` workflow auto-labels the PR (see [GitHub Workflows](/build/github-workflows)).
+
+## `common.props` — the shared package head
+
+Every shippable project imports `common.props` and inherits:
+
+```xml
+<PropertyGroup>
+  <LangVersion>latest</LangVersion>
+  <Version>10.6.0-preview</Version>
+  <LeptonXVersion>5.6.0-preview</LeptonXVersion>
+  <NoWarn>$(NoWarn);CS1591;CS0436</NoWarn>
+  <PackageIconUrl>https://abp.io/assets/abp_nupkg.png</PackageIconUrl>
+  <PackageProjectUrl>https://abp.io/</PackageProjectUrl>
+  <PackageLicenseExpression>LGPL-3.0-only</PackageLicenseExpression>
+  <RepositoryType>git</RepositoryType>
+  <RepositoryUrl>https://github.com/abpframework/abp/</RepositoryUrl>
+  <PackageReadmeFile>NuGet.md</PackageReadmeFile>
+  <PackageTags>aspnetcore boilerplate framework web best-practices angular maui blazor mvc csharp webapp</PackageTags>
+  <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+</PropertyGroup>
+```
+
+Key conventions:
+
+- `LangVersion=latest` — every project uses C# preview features without per-project opt-in.
+- `Version` is the single source of truth for the ABP nupkg version; `LeptonXVersion` is the paired theme version.
+- `CS1591` (missing XML doc) and `CS0436` (type forwarder collisions) are suppressed globally.
+- PDBs are included in the package output so SourceLink works once you flip a debugger to "external sources".
+- `Microsoft.SourceLink.GitHub` is added as a private package reference so each `.snupkg` knows the commit SHA.
+- `*.abppkg` and `*.abppkg.analyze.json` are packaged into `content/`, which is how the ABP CLI knows a NuGet is an ABP module without unpacking the DLLs.
+- `HttpApi.Client` projects embed their `generate-proxy.json` files (the seed for the [static client proxy](/flows/dynamic-client-proxy-call) finder).
+
+## `Directory.Build.props` — test detection
+
+Every project under the repo inherits this:
+
+```xml
+<Project>
+  <PropertyGroup>
+    <IsTestProject Condition="$(MSBuildProjectFullPath.Contains('test')) and
+      ($(MSBuildProjectName.EndsWith('.Tests')) or
+       $(MSBuildProjectName.EndsWith('.TestBase')))">true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Condition="'$(IsTestProject)' == 'true'" Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>
+```
+
+The combined heuristic (`/test/` in path AND name ends in `.Tests` or `.TestBase`) means any new test project automatically gets the coverage collector with no extra ceremony.
+
+## `common.test.props` — test-project lid
+
+Test projects further import this:
+
+```xml
+<PropertyGroup>
+  <LangVersion>latest</LangVersion>
+  <NoWarn>$(NoWarn);CS1591;CS0436</NoWarn>
+  <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+  <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
+  <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
+  <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
+</PropertyGroup>
+```
+
+It suppresses the assembly attributes that would otherwise collide when xUnit reflects on the test assembly. See [Testing](/build/testing).
+
+## `configureawait.props`
+
+```xml
+<ItemGroup Condition="'$(Configuration)' == 'Release'">
+  <PackageReference Include="ConfigureAwait.Fody" PrivateAssets="All" />
+  <PackageReference Include="Fody" />
+</ItemGroup>
+```
+
+In Release builds, the Fody weaver rewrites every `await` in framework libraries to `ConfigureAwait(false)`, eliminating sync-context capture in library code. Test projects do not import this file.
+
+## Solution layout — `.slnx`
+
+ABP uses the new XML `.slnx` solution format (not the legacy text `.sln`). `framework/Volo.Abp.slnx` is the canonical solution and lists every framework project under `/src/`:
+
+```xml
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Volo.Abp.AI.Abstractions/Volo.Abp.AI.Abstractions.csproj" />
+    <Project Path="src/Volo.Abp.AspNetCore.Abstractions/Volo.Abp.AspNetCore.Abstractions.csproj" />
+    <!-- ...250+ entries -->
+  </Folder>
+</Solution>
+```
+
+Modules and templates have their own per-folder solution; the build script iterates these solutions in order (see [Scripts](/build/scripts)).
+
+## How a project consumes the conventions
+
+A representative `csproj`:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\..\common.props" />
+  <Import Project="..\..\..\configureawait.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Volo.Abp.Auditing</AssemblyName>
+    <PackageId>Volo.Abp.Auditing</PackageId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <ProjectReference Include="..\Volo.Abp.Core\Volo.Abp.Core.csproj" />
+  </ItemGroup>
+</Project>
+```
+
+Everything else (version, license, repository URL, SourceLink, doc gen, ConfigureAwait weaver) comes from the shared files.
+
+## Target framework
+
+`common.props` does **not** set `TargetFramework` — each project picks its own. The current target across the framework is `net10.0`; test projects pin the same. ASP.NET Core dependencies in `Directory.Packages.props` are aligned at `10.0.7` (`Microsoft.AspNetCore.*`, `Microsoft.EntityFrameworkCore.*`).
+
+## NuGet feeds
+
+`NuGet.Config` at the repo root scopes the restore feeds. The nightly feed (configured by `nupkg/push-nightly-packages-myget.ps1`) is **not** in this file; it is added at push time by the deploy scripts.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Build Scripts" href="/build/scripts">PowerShell entry points for build/test/pack/push.</Card>
+  <Card title="NuGet & npm" href="/build/nuget-and-npm">How packages are produced and shipped.</Card>
+  <Card title="GitHub Workflows" href="/build/github-workflows">CI/CD that runs on every PR and release.</Card>
+  <Card title="Testing" href="/build/testing">Test project conventions that build on these props.</Card>
+</CardGroup>

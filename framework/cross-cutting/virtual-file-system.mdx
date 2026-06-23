@@ -1,0 +1,126 @@
+---
+title: "Virtual file system for modular assets"
+sidebarTitle: "Virtual File System"
+description: "VirtualFileProvider composes embedded, physical, and dynamic file sets so modules can ship and override resources via IFileProvider."
+---
+
+The virtual file system (VFS) is how ABP modules ship static assets — Razor views, JavaScript, CSS, JSON localisation files, email templates, OpenIddict UI fragments — without forcing host applications to copy them into wwwroot. At runtime every registered file set is composed into a single `IFileProvider`, and host applications can override any embedded path by registering a physical file set at the same virtual location.
+
+## Module bootstrap
+
+```csharp
+// framework/src/Volo.Abp.VirtualFileSystem/Volo/Abp/VirtualFileSystem/AbpVirtualFileSystemModule.cs
+public class AbpVirtualFileSystemModule : AbpModule { … }
+
+// AbpVirtualFileSystemOptions.cs
+public class AbpVirtualFileSystemOptions
+{
+    public VirtualFileSetList FileSets { get; } = new VirtualFileSetList();
+}
+```
+
+Modules push themselves onto the list during `ConfigureServices`:
+
+```csharp
+Configure<AbpVirtualFileSystemOptions>(options =>
+{
+    options.FileSets.AddEmbedded<MyModule>();              // embedded resources of MyModule's assembly
+    options.FileSets.AddPhysical("/etc/myapp/templates");  // override / extend from disk
+});
+```
+
+## `VirtualFileProvider` composition
+
+`VirtualFileProvider` (`Volo/Abp/VirtualFileSystem/VirtualFileProvider.cs`) is the singleton injected as `IVirtualFileProvider`. It composes every registered file set plus an in-memory dynamic provider into one `CompositeFileProvider`:
+
+```csharp
+protected virtual IFileProvider CreateHybridProvider(IDynamicFileProvider dynamicFileProvider)
+{
+    var fileProviders = new List<IFileProvider> { dynamicFileProvider };
+    foreach (var fileSet in _options.FileSets.AsEnumerable().Reverse())
+        fileProviders.Add(fileSet.FileProvider);
+    return new CompositeFileProvider(fileProviders);
+}
+```
+
+Three things are worth noting:
+
+- **`IDynamicFileProvider` is first.** Code can call `dynamicFileProvider.AddOrUpdate(IFileInfo)` to inject files at runtime (used by the bundling and ML modules); those entries shadow everything else.
+- **File sets are iterated in reverse.** The *last* registered set wins for a given path — host applications register their physical overrides after referenced modules, so their files take precedence over embedded ones.
+- **Composition is one-shot.** `CreateHybridProvider` runs in the constructor; new file sets added after DI is built will not appear. The dynamic provider exists precisely so runtime additions still work.
+
+`IVirtualFileProvider` (`IVirtualFileProvider.cs`) is just `IFileProvider`, so any ASP.NET Core code that consumes `IFileProvider` — `IWebHostEnvironment.ContentRootFileProvider`, Razor compilation, static-file middleware — accepts it.
+
+## File-set types
+
+`VirtualFileSetListExtensions` (`VirtualFileSetListExtensions.cs`) is the registration surface. The three flavours are:
+
+### Embedded
+
+```csharp
+options.FileSets.AddEmbedded<MyModule>(baseNamespace: null, baseFolder: null);
+```
+
+Looks at the module assembly for a `Microsoft.Extensions.FileProviders.Embedded.Manifest.xml` manifest (produced when the project sets `<GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>`) and uses `ManifestEmbeddedFileProvider`. Without the manifest it falls back to `AbpEmbeddedFileProvider` (`Embedded/AbpEmbeddedFileProvider.cs`) which scans the assembly's manifest resources. The optional `baseFolder` lets a module map an embedded sub-tree to the root of its virtual path (`Volo/Abp/UI/Theme/Resources` → `/`).
+
+### Physical
+
+```csharp
+options.FileSets.AddPhysical("/var/lib/myapp/templates",
+    exclusionFilters: ExclusionFilters.Sensitive);
+```
+
+Wraps `PhysicalFileProvider` for paths the host wants to expose live. The default exclusion filter hides dotfiles and system files; pass `ExclusionFilters.None` to expose everything (rarely a good idea outside dev).
+
+### Replace embedded with physical
+
+```csharp
+options.FileSets.ReplaceEmbeddedByPhysical<MyModule>(@"D:\src\my-module\src\MyModule");
+```
+
+Common dev-loop trick: at startup, swap the embedded provider for a physical one pointing at the source folder so editing `*.cshtml` triggers a live reload without a rebuild. The helper takes the same `ExclusionFilters` overload and uses `typeof(T).Assembly` to identify the assembly whose resources should be shadowed.
+
+## Dynamic files
+
+`IDynamicFileProvider` / `DynamicFileProvider` (`DynamicFileProvider.cs`) is a dictionary-backed `IFileProvider`:
+
+```csharp
+public virtual void AddOrUpdate(IFileInfo fileInfo)
+{
+    var filePath = fileInfo.GetVirtualOrPhysicalPathOrNull();
+    DynamicFiles.AddOrUpdate(filePath!, fileInfo, (k, v) => fileInfo);
+    ReportChange(filePath!);
+}
+
+public virtual bool Delete(string filePath) { … }
+```
+
+Each `AddOrUpdate` fires a `CancellationChangeToken` (via `GetOrAddChangeToken`) so Razor / asset bundling re-compile when a virtual file's contents change. The provider only supports per-file watches today; directory and wildcard watches are TODO in the source.
+
+Modules use this to inject runtime-generated content — `Volo.Abp.AspNetCore.Mvc.UI.Bundling`, the OpenIddict dynamic claims store, and email templating all push files through `IDynamicFileProvider`.
+
+## File-info layout
+
+Common `IFileInfo` implementations exposed by the VFS:
+
+| Type | File |
+| --- | --- |
+| `InMemoryFileInfo` | `InMemoryFileInfo.cs` — bytes + virtual path. |
+| `EmbeddedResourceFileInfo` | `Embedded/EmbeddedResourceFileInfo.cs` — wraps `Assembly.GetManifestResourceStream`. |
+| `VirtualDirectoryFileInfo` | `VirtualDirectoryFileInfo.cs` — used by `EnumerableDirectoryContents`. |
+
+`VirtualFilePathHelper.NormalizePath` collapses `\\` to `/` and trims leading dots so callers can use the same path on Windows and Linux.
+
+## Consuming the VFS
+
+- **Razor views.** `Volo.Abp.AspNetCore.Mvc` registers `IVirtualFileProvider` as the Razor `IFileProvider`, so `_ViewImports.cshtml` and partial views ship with the assembly.
+- **Localisation.** `LocalizationResource.AddVirtualJson(path)` uses `IVirtualFileProvider` to enumerate culture JSON files — see [localization](/framework/cross-cutting/localization).
+- **Email and notification templates.** `Volo.Abp.TextTemplating.VirtualFiles` resolves template content from the VFS.
+- **Static files.** `AbpAspNetCoreVirtualFileSystemExtensions.UseVirtualFiles()` plugs the VFS into the static-file middleware so JS/CSS embedded in modules ship to the browser unchanged.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Localization" href="/framework/cross-cutting/localization" />
+  <Card title="Text templating" href="/framework/cross-cutting/text-templating" />
+</CardGroup>

@@ -1,0 +1,88 @@
+---
+title: "Dapper integration over EF Core DbContexts"
+sidebarTitle: "Dapper"
+description: "How Volo.Abp.Dapper exposes IDbConnection and IDbTransaction from an existing EF Core unit of work so Dapper queries stay transactional."
+---
+
+`Volo.Abp.Dapper` is intentionally tiny: it does not own a connection pool, a context, or a repository registrar. Instead it borrows the active EF Core `DbContext` for the current unit of work and surfaces its `DbConnection` / `DbTransaction` to Dapper. The result is that hand-tuned SQL using `Dapper.Query<T>` participates in the same ABP transaction as your EF Core writes, with zero extra configuration.
+
+## Module dependencies
+
+```csharp
+// framework/src/Volo.Abp.Dapper/Volo/Abp/Dapper/AbpDapperModule.cs
+[DependsOn(
+    typeof(AbpDddDomainModule),
+    typeof(AbpEntityFrameworkCoreModule))]
+public class AbpDapperModule : AbpModule { }
+```
+
+The dependency on `AbpEntityFrameworkCoreModule` is the architectural statement: Dapper here is a *helper*, not a parallel data stack. You must already have an EF Core `DbContext` registered for the same database.
+
+## `IDapperRepository` contract
+
+The contract (`framework/src/Volo.Abp.Dapper/Volo/Abp/Domain/Repositories/Dapper/IDapperRepository.cs`) is two async accessors:
+
+```csharp
+public interface IDapperRepository
+{
+    Task<IDbConnection> GetDbConnectionAsync();
+    Task<IDbTransaction?> GetDbTransactionAsync();
+}
+```
+
+The synchronous `DbConnection` / `DbTransaction` properties exist but are decorated `[Obsolete]`; always use the async overloads so the UoW provider can open the DbContext on a worker thread.
+
+## `DapperRepository<TDbContext>`
+
+`DapperRepository<TDbContext>` (`framework/src/Volo.Abp.Dapper/Volo/Abp/Domain/Repositories/Dapper/DapperRepository.cs`) is generic over an `IEfCoreDbContext` so each Dapper repository is bound to the same physical database its EF Core sibling uses. Subclass it, type-parameter it with your context, and it becomes a transient ABP service:
+
+```csharp
+public class ProductDapperRepository : DapperRepository<MyDbContext>, ITransientDependency
+{
+    public ProductDapperRepository(IDbContextProvider<MyDbContext> p) : base(p) { }
+
+    public async Task<List<Product>> TopSellersAsync(int take)
+    {
+        var conn = await GetDbConnectionAsync();
+        var tx   = await GetDbTransactionAsync();
+        return (await conn.QueryAsync<Product>(
+            "SELECT TOP (@take) * FROM Products ORDER BY SoldCount DESC",
+            new { take }, tx)).AsList();
+    }
+}
+```
+
+Internally the connection is forwarded straight from the EF context that the UoW already owns:
+
+```csharp
+public virtual async Task<IDbConnection> GetDbConnectionAsync()
+    => (await _dbContextProvider.GetDbContextAsync()).Database.GetDbConnection();
+
+public virtual async Task<IDbTransaction?> GetDbTransactionAsync()
+    => (await _dbContextProvider.GetDbContextAsync()).Database.CurrentTransaction?.GetDbTransaction();
+```
+
+Because `IDbContextProvider<TDbContext>` is the unit-of-work-aware provider, the same `DbConnection` instance is returned to Dapper *and* EF for the lifetime of the UoW; calls to `Database.GetDbConnection()` do not create new connections. The `DbTransaction` is whichever ABP transaction wraps the UoW (or `null` if `UnitOfWorkOptions.IsTransactional == false`).
+
+The base class also exposes ABP collaborators via `IAbpLazyServiceProvider` so concrete repositories can check tenancy, toggle data filters, and resolve cancellation tokens without extra constructor arguments:
+
+| Member | Source |
+| --- | --- |
+| `DataFilter` | `IDataFilter` — soft-delete/multi-tenant toggles. |
+| `CurrentTenant` | `ICurrentTenant` — pin a tenant ID into your SQL. |
+| `UnitOfWorkManager` | `IUnitOfWorkManager` — start a nested UoW when needed. |
+| `CancellationTokenProvider` | `ICancellationTokenProvider` — falls back to `NullCancellationTokenProvider.Instance`. |
+| `IUnitOfWorkEnabled` (marker) | Makes the repository participate in the surrounding UoW. |
+
+## Operational notes
+
+- Dapper does **not** see ABP global query filters; soft-delete and tenant predicates must be added by hand in your SQL (`WHERE TenantId = @tenantId AND IsDeleted = 0`). Read `CurrentTenant.Id` and the `IDataFilter.IsEnabled<ISoftDelete>()` state if you want to honour the same semantics as the EF Core repositories.
+- Writes performed via Dapper bypass `AbpDbContext.SaveChangesAsync` and therefore *do not* publish `EntityUpdatedEvent`, audit-log entity changes, or update concurrency stamps. Use Dapper for read-heavy or bulk paths; route writes through EF Core repositories when you need ABP's auditing/events.
+- For multi-DbContext apps, register one `DapperRepository<TContext>` per context — the type parameter is what binds Dapper to the right connection.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Entity Framework Core" href="/framework/data/entity-framework-core" />
+  <Card title="Data seeding & filtering" href="/framework/data/data-seeding-and-filtering" />
+</CardGroup>

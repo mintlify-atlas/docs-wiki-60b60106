@@ -1,0 +1,91 @@
+---
+title: "Clock abstraction and time-zone normalisation"
+sidebarTitle: "Timing"
+description: "IClock, the Clock implementation, AbpClockOptions, and how ABP normalises DateTime kinds across the framework."
+---
+
+`Volo.Abp.Timing` is the framework's `DateTime` abstraction. Code reads `IClock.Now` instead of `DateTime.UtcNow` so tests can swap the clock, multi-tenant deployments can run in mixed timezones, and EF Core's value converters can normalise every persisted `DateTime` to a single kind. The whole system is two interfaces and one options class.
+
+## `IClock`
+
+```csharp
+// framework/src/Volo.Abp.Timing/Volo/Abp/Timing/IClock.cs
+public interface IClock
+{
+    DateTime Now { get; }
+    DateTimeKind Kind { get; }
+    bool SupportsMultipleTimezone { get; }
+    DateTime Normalize(DateTime dateTime);
+    DateTime ConvertToUserTime(DateTime utcDateTime);
+    DateTimeOffset ConvertToUserTime(DateTimeOffset dateTimeOffset);
+    DateTime ConvertToUtc(DateTime dateTime);
+}
+```
+
+The default `Clock` (`Clock.cs`) decides everything by reading `AbpClockOptions.Kind`:
+
+```csharp
+public virtual DateTime Now => Options.Kind == DateTimeKind.Utc ? DateTime.UtcNow : DateTime.Now;
+public virtual bool SupportsMultipleTimezone => Options.Kind == DateTimeKind.Utc;
+```
+
+`Normalize` coerces an incoming `DateTime` into the configured kind:
+
+```csharp
+if (Kind == DateTimeKind.Local && dateTime.Kind == DateTimeKind.Utc) return dateTime.ToLocalTime();
+if (Kind == DateTimeKind.Utc && dateTime.Kind == DateTimeKind.Local) return dateTime.ToUniversalTime();
+return DateTime.SpecifyKind(dateTime, Kind);
+```
+
+This is what `AbpDbContext.ConfigureValueConverter` uses (via `AbpDateTimeValueConverter` and `AbpNullableDateTimeValueConverter`) so every `DateTime` written to the database has the same `Kind`. Properties or types decorated with `[DisableDateTimeNormalization]` (`DisableDateTimeNormalizationAttribute.cs`) opt out.
+
+## `AbpClockOptions`
+
+```csharp
+// AbpClockOptions.cs
+public class AbpClockOptions
+{
+    public DateTimeKind Kind { get; set; } = DateTimeKind.Unspecified;
+}
+```
+
+Choose one of:
+
+- **`DateTimeKind.Utc`** — recommended. `Now` returns UTC, `SupportsMultipleTimezone` is `true`, and the per-user timezone conversions in `ConvertToUserTime` kick in (using `ICurrentTimezoneProvider.TimeZone` and `ITimezoneProvider.GetTimeZoneInfo`).
+- **`DateTimeKind.Local`** — the host's local timezone everywhere.
+- **`DateTimeKind.Unspecified`** (default) — backwards-compatible behaviour, no conversion.
+
+Configure in the application module:
+
+```csharp
+Configure<AbpClockOptions>(o => o.Kind = DateTimeKind.Utc);
+```
+
+## Per-user time-zone conversion
+
+When `SupportsMultipleTimezone` is true and `ICurrentTimezoneProvider.TimeZone` is set:
+
+```csharp
+public virtual DateTime ConvertToUserTime(DateTime utcDateTime)
+{
+    if (!SupportsMultipleTimezone || utcDateTime.Kind != DateTimeKind.Utc
+        || CurrentTimezoneProvider.TimeZone.IsNullOrWhiteSpace()) return utcDateTime;
+    var tz = TimezoneProvider.GetTimeZoneInfo(CurrentTimezoneProvider.TimeZone);
+    return TimeZoneInfo.ConvertTime(utcDateTime, tz);
+}
+```
+
+`ICurrentTimezoneProvider` (`CurrentTimezoneProvider.cs`) holds the active IANA / Windows time-zone name; the value is typically set from a user setting or the user's claim during request setup. `ITimezoneProvider` (`ITimezoneProvider.cs`) maps the name to `TimeZoneInfo` and is implemented by `Volo.Abp.Timing.TimezoneProvider`.
+
+## Practical recipes
+
+- **Unit tests.** Replace `IClock` with a stub that returns a fixed `DateTime` and assert on `IClock.Now` rather than `DateTime.UtcNow`.
+- **Database normalisation.** Set `Kind = DateTimeKind.Utc` and let `AbpDbContext` value converters guarantee every column is UTC.
+- **Display in user time.** In MVC / Blazor, call `Clock.ConvertToUserTime(entity.CreationTime)` so the same UTC value is rendered in the user's timezone.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Guids" href="/framework/cross-cutting/guids" />
+  <Card title="EF Core" href="/framework/data/entity-framework-core" />
+</CardGroup>

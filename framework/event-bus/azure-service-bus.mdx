@@ -1,0 +1,65 @@
+---
+title: "Azure Service Bus: Topics and Subscriptions for ABP Events"
+sidebarTitle: "Azure Service Bus"
+description: "Configure AzureDistributedEventBus with topic/subscription routing, PublisherPool, and ProcessorPool over Azure.Messaging.ServiceBus."
+---
+
+`Volo.Abp.EventBus.Azure` plugs the distributed bus into Azure Service Bus, using `Azure.Messaging.ServiceBus` clients pooled by `Volo.Abp.AzureServiceBus`.
+
+## AzureDistributedEventBus
+
+`AzureDistributedEventBus` (`framework/src/Volo.Abp.EventBus.Azure/Volo/Abp/EventBus/Azure/AzureDistributedEventBus.cs`) is registered with `[Dependency(ReplaceServices = true)]` and `[ExposeServices(typeof(IDistributedEventBus), typeof(AzureDistributedEventBus))]`. It composes four collaborators:
+
+- `IAzureServiceBusMessageConsumerFactory` — creates `IAzureServiceBusMessageConsumer` for a topic/subscription pair.
+- `IPublisherPool` — pooled `ServiceBusSender` instances.
+- `IAzureServiceBusSerializer` — defaults to `Utf8JsonAzureServiceBusSerializer`.
+- `AbpAzureEventBusOptions` — topic and subscriber names.
+
+## AbpAzureEventBusOptions
+
+```csharp
+public class AbpAzureEventBusOptions
+{
+    public string? ConnectionName { get; set; }
+    public string SubscriberName { get; set; } = default!;
+    public string TopicName { get; set; } = default!;
+    public bool IsServiceBusDisabled { get; set; }
+}
+```
+
+`TopicName` is the Service Bus topic every microservice publishes to. `SubscriberName` is the subscription consumed by *this* service; following Service Bus semantics, every service usually owns one subscription per topic. `IsServiceBusDisabled` is an escape hatch that turns the bus into a no-op for local testing without removing module dependencies.
+
+## Topic and subscription handling
+
+When the bus initialises it ensures topology exists via `ServiceBusAdministrationClientExtensions`: it idempotently creates the topic, the subscription, and SQL filters if you configured any. Inbound messages flow into `ProcessorPool` which manages `ServiceBusProcessor` instances per `(topic, subscription, connection)`. Outbound publishes go through `PublisherPool.GetAsync()` to obtain a `ServiceBusSender` and call `SendMessageAsync` with the serialised event and headers carrying `messageId`, `correlationId`, and the ABP event name.
+
+## Pools and connections
+
+`PublisherPool` and `ProcessorPool` (`framework/src/Volo.Abp.AzureServiceBus/Volo/Abp/AzureServiceBus/`) lazily build per-connection clients keyed by `connectionName`. `ConnectionPool` owns the underlying `ServiceBusClient` and is the single point of disposal.
+
+`AbpAzureServiceBusOptions.Connections` is an `AzureServiceBusConnections` dictionary of `ClientConfig` entries — each carries a connection string and optional `ServiceBusClientOptions`:
+
+```csharp
+Configure<AbpAzureServiceBusOptions>(options =>
+{
+    options.Connections.Default.ConnectionString = "Endpoint=sb://...";
+});
+
+Configure<AbpAzureEventBusOptions>(options =>
+{
+    options.TopicName = "abp-events";
+    options.SubscriberName = "billing-service";
+});
+```
+
+## Module wiring
+
+Depend on `AbpEventBusAzureModule`. The module's lifecycle hook calls `azureDistributedEventBus.Initialize()` once the application is fully configured, which is when the topic/subscription topology is ensured and the message processor starts.
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Distributed Bus" href="/framework/event-bus/distributed-event-bus" icon="network-wired" />
+  <Card title="RabbitMQ" href="/framework/event-bus/rabbitmq" icon="rabbit" />
+  <Card title="Kafka" href="/framework/event-bus/kafka" icon="stream" />
+</CardGroup>

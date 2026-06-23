@@ -1,0 +1,41 @@
+---
+title: "@abp/ng.setting-management — Settings Host Page"
+sidebarTitle: "setting-management"
+description: "Host page that aggregates settings tabs contributed by other modules through SettingTabsService and renders them under one settings route."
+---
+
+`@abp/ng.setting-management` (`npm/ng-packs/packages/setting-management/`) hosts a tabbed settings page that other modules plug into.
+
+## Source layout
+
+```
+packages/setting-management/
+├── proxy/
+└── src/lib/
+    ├── setting-management.module.ts
+    ├── setting-management-routing.module.ts
+    ├── setting-management.routes.ts
+    ├── components/
+    │   ├── setting-management.component.ts
+    │   └── setting-management.component.html
+    └── enums/
+└── config/                       // provideAbpSettingManagement
+```
+
+## How it composes
+
+The page is intentionally empty by itself — it loops over a registry (`SettingTabsService` / `SETTING_TABS` token) and renders each entry as a Bootstrap-style tab. Modules contribute tabs at config time:
+
+```typescript
+// e.g. theme module registers an "Email" tab
+provideAbpSettingManagement({
+  contributors: { add: [emailSettingTabContributor] }
+})
+```
+
+Each contributor supplies a tab name, a required policy (filtered by `@abp/ng.core/PermissionService`), and a component to project. The route lives at `/setting-management` and is registered into the sidebar via `@abp/ng.theme.shared/NavItemsService`.
+
+<CardGroup cols={2}>
+  <Card title="feature-management" href="/ng-packs/feature-management">Modal-based sibling</Card>
+  <Card title="core" href="/ng-packs/core">PermissionService gates tab visibility</Card>
+</CardGroup>

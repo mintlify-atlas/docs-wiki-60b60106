@@ -1,0 +1,93 @@
+---
+title: "Threading — AsyncHelper, Ambient Scopes, Cancellation"
+sidebarTitle: "Threading"
+description: "Small thread-of-execution utilities used across ABP: sync-over-async bridge, AsyncLocal-backed ambient scopes and a pluggable cancellation token provider."
+---
+
+ABP keeps its threading primitives small and focused. The `Volo.Abp.Threading` package provides three utilities you will see in almost every other module: `AsyncHelper` for the rare places where sync-over-async is unavoidable, `AmbientDataContextAmbientScopeProvider<T>` for stack-of-values storage that survives across `await`s, and `ICancellationTokenProvider` for swapping the ambient `CancellationToken` (e.g. test harnesses overriding the per-request token). The package is `framework/src/Volo.Abp.Threading/`.
+
+## Source Inventory
+
+| File | Role |
+| --- | --- |
+| `Volo.Abp.Core/Volo/Abp/Threading/AsyncHelper.cs` | Reflection helpers (`IsAsync`, `IsTaskOrTaskOfT`, `UnwrapTask`) plus Nito.AsyncEx wrappers for `RunSync`. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/AbpThreadingModule.cs` | `AbpModule` for this package. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/AbpTimer.cs` / `AbpAsyncTimer.cs` | Periodic background timers used by background workers and metrics. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/IAmbientDataContext.cs` | Get/Set key-value store for the current logical call context. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/AsyncLocalAmbientDataContext.cs` | Default implementation backed by `AsyncLocal<...>`. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/IAmbientScopeProvider.cs` | Nested-scope contract: `GetValue(key)` / `BeginScope(key, value)`. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/AmbientDataContextAmbientScopeProvider.cs` | Generic scope provider on top of `IAmbientDataContext`. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/AsyncLocalSimpleScopeExtensions.cs` | Convenience helpers for one-off `AsyncLocal` scopes. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/ICancellationTokenProvider.cs` | Ambient `CancellationToken` accessor + `Use(token)` scope. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/CancellationTokenProviderBase.cs` | Base class — pulls overrides from `AsyncLocal` storage. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/CancellationTokenOverride.cs` | The struct pushed/popped by `Use`. |
+| `Volo.Abp.Threading/Volo/Abp/Threading/NullCancellationTokenProvider.cs` | Returns `CancellationToken.None`. |
+
+## `AsyncHelper`
+
+`AsyncHelper` is mostly reflection used by code generators (dynamic HTTP clients, integration tests, validation interceptor):
+
+```csharp
+// framework/src/Volo.Abp.Core/Volo/Abp/Threading/AsyncHelper.cs
+public static bool IsAsync([NotNull] this MethodInfo method) =>
+    method.ReturnType.IsTaskOrTaskOfT();
+
+public static bool IsTaskOrTaskOfT([NotNull] this Type type) =>
+    type == typeof(Task) || (type.GetTypeInfo().IsGenericType && type.GetGenericTypeDefinition() == typeof(Task<>));
+
+public static Type UnwrapTask([NotNull] Type type) { /* Task → void, Task<T> → T, else type */ }
+```
+
+It also exposes `RunSync(Func<Task>)` / `RunSync<T>(Func<Task<T>>)` built on `Nito.AsyncEx`. Use it only at top-level entry points that cannot be async (e.g. a synchronous `Main` or a constructor) — never in request handling code.
+
+## `ICancellationTokenProvider`
+
+```csharp
+// framework/src/Volo.Abp.Threading/Volo/Abp/Threading/ICancellationTokenProvider.cs
+public interface ICancellationTokenProvider
+{
+    CancellationToken Token { get; }
+    IDisposable Use(CancellationToken cancellationToken);
+}
+```
+
+`HttpContextCancellationTokenProvider` (in `Volo.Abp.AspNetCore`) reads `HttpContext.RequestAborted`; `NullCancellationTokenProvider.Instance` returns `None` and is used when no host has registered a real provider. Repository base classes (`BasicRepositoryBase`) resolve `ICancellationTokenProvider` lazily and pipe its token through every database call so timeouts and request-aborts cascade automatically.
+
+## Ambient Scopes
+
+The scope provider stores a *stack* of values per key. `BeginScope` pushes a frame; disposing the returned `IDisposable` pops it:
+
+```csharp
+// framework/src/Volo.Abp.Threading/Volo/Abp/Threading/IAmbientScopeProvider.cs
+public interface IAmbientScopeProvider<T>
+{
+    T? GetValue(string contextKey);
+    IDisposable BeginScope(string contextKey, T value);
+}
+```
+
+The default `AmbientDataContextAmbientScopeProvider<T>` keeps a `ConcurrentDictionary<string, ScopeItem>` for backing storage and tracks the outer item per frame so nested `BeginScope` calls restore the previous value on dispose:
+
+```csharp
+public IDisposable BeginScope(string contextKey, T value)
+{
+    var item = new ScopeItem(value, GetCurrentItem(contextKey));
+    if (!ScopeDictionary.TryAdd(item.Id, item))
+        throw new AbpException("Can not add item! ScopeDictionary.TryAdd returns false!");
+    _dataContext.SetData(contextKey, item.Id);
+    return new DisposeAction</*…*/>(/* pop frame, restore Outer */);
+}
+```
+
+`IAmbientDataContext` is the underlying transport — the default `AsyncLocalAmbientDataContext` wraps `AsyncLocal<Dictionary<string, object?>>`, so scopes flow across `await` boundaries but not across thread-pool work that escapes the logical call context. `ICurrentTenant.Change(...)` and `IDataFilter.Enable<T>()`/`Disable<T>()` are both implemented on top of this primitive.
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Dependency Injection" icon="syringe" href="/framework/core/dependency-injection">
+    How these helpers are auto-registered through marker interfaces.
+  </Card>
+  <Card title="Repositories" icon="database" href="/framework/ddd/repositories">
+    Where `ICancellationTokenProvider` actually feeds the data layer.
+  </Card>
+</CardGroup>

@@ -1,0 +1,82 @@
+---
+title: "Feature Management: Persistent Feature Toggles by Provider"
+sidebarTitle: "Feature Management"
+description: "Persistent feature-value storage for ABP's feature system, with edition, tenant, and default value providers feeding IFeatureManager."
+---
+
+ABP's `Volo.Abp.Features` package defines what a "feature" is and how the framework reads it (`IFeatureChecker`). This **Feature Management** module supplies the *persistence and admin* surface — the place where `FeatureValue` rows live, how they are looked up via providers, and the management API that the admin UI uses.
+
+Source layout under `/home/daytona/repos/abpframework/abp/modules/feature-management/src/`:
+
+| Project | Purpose |
+| --- | --- |
+| `Volo.Abp.FeatureManagement.Domain.Shared` | Consts / errors |
+| `Volo.Abp.FeatureManagement.Domain` | Aggregate + stores + `FeatureManager` |
+| `Volo.Abp.FeatureManagement.Application(.Contracts)` | `IFeatureAppService` and DTOs |
+| `Volo.Abp.FeatureManagement.HttpApi(.Client)` | REST controllers + proxies |
+| `Volo.Abp.FeatureManagement.EntityFrameworkCore` / `.MongoDB` | Persistence |
+| `Volo.Abp.FeatureManagement.Web` / `.Blazor*` | Management modal UI |
+| `Volo.Abp.FeatureManagement.Installer` | CLI installer payload |
+
+## Aggregate
+
+`Volo.Abp.FeatureManagement.Domain/Volo/Abp/FeatureManagement/FeatureValue.cs`:
+
+```csharp
+public class FeatureValue : Entity<Guid>, IAggregateRoot<Guid>
+{
+    public virtual string Name         { get; protected set; }   // feature name
+    public virtual string Value        { get; internal  set; }   // serialized value
+    public virtual string ProviderName { get; protected set; }   // "E" (edition), "T" (tenant), ...
+    public virtual string ProviderKey  { get; protected set; }   // edition id, tenant id, ...
+}
+```
+
+A single row is identified by the `(Name, ProviderName, ProviderKey)` triple — the same shape as [Permission Management](/modules/permission-management).
+
+Companion types in the same folder:
+
+- `IFeatureManagementStore` — the abstraction the rest of the module uses to read/write values.
+- `FeatureManagementStore` — default implementation backed by `IFeatureValueRepository` plus `FeatureValueCacheItem` cache.
+- `FeatureStore` (`: IFeatureStore`) — adapts `IFeatureManagementStore` to the `IFeatureChecker` consumed by application code.
+- `FeatureDefinitionRecord` / `FeatureGroupDefinitionRecord` / `FeatureDefinitionSerializer` — DB representation of statically declared feature definitions, populated by `FeatureDynamicInitializer` so distributed apps share a single definition catalog.
+
+## Providers
+
+`FeatureManagementProvider` is the base class; ABP ships three out of the box:
+
+| Class | Provider name | Looks up |
+| --- | --- | --- |
+| `DefaultValueFeatureManagementProvider` | `"D"` | The feature definition's `DefaultValue` |
+| `ConfigurationFeatureManagementProvider` | `"C"` | `IConfiguration` (`appsettings.json`) |
+| `EditionFeatureManagementProvider` | `"E"` | `FeatureValue` rows keyed by edition id |
+
+The Tenant Management module adds a tenant (`"T"`) provider on top. `FeatureManagementOptions.Providers` lists the resolution order — first one to return a non-null wins.
+
+## `IFeatureManager`
+
+`FeatureManager.cs` (registered as `ISingletonDependency`) is the admin-facing API:
+
+```csharp
+public class FeatureManager : IFeatureManager
+{
+    public virtual Task<string>                                       GetOrNullAsync(string name, string providerName, string providerKey);
+    public virtual Task<List<FeatureNameValue>>                       GetAllAsync(string providerName, string providerKey);
+    public          Task<FeatureNameValueWithGrantedProvider>         GetOrNullWithProviderAsync(string name, ...);
+    public          Task<List<FeatureNameValueWithGrantedProvider>>   GetAllWithProviderAsync(...);
+    public virtual Task                                               SetAsync(string name, string value, string providerName, string providerKey);
+    public virtual Task                                               DeleteAsync(string providerName, string providerKey);
+}
+```
+
+The `*WithProvider` variants return which provider answered (useful when the management UI needs to show "inherited from edition" vs. "explicitly set"). `SetAsync` writes a `FeatureValue` row through the matching provider and invalidates `FeatureValueCacheItem` for that triple.
+
+## Lifecycle
+
+`FeatureDynamicInitializer` runs on application start, calls `FeatureDefinitionSerializer` to snapshot the in-memory `IFeatureDefinitionManager` into `FeatureDefinitionRecord` rows, and triggers `FeatureValueCacheItemInvalidator` if anything changed. This is how new feature definitions added by a service get picked up by every other service in a distributed deployment.
+
+## Related
+
+- [Tenant Management](/modules/tenant-management) — adds the tenant ("T") provider.
+- [Permission Management](/modules/permission-management) — sibling module, same value-provider pattern.
+- [Setting Management](/modules/setting-management) — sibling for user/tenant/global settings.

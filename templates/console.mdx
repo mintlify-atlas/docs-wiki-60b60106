@@ -1,0 +1,54 @@
+---
+title: "Console Template: Minimal ABP Autofac Console Host"
+sidebarTitle: "Console"
+description: "The smallest possible ABP starter — `abp new -t console` produces one csproj hosting AbpApplicationFactory under Microsoft.Extensions.Hosting + Serilog."
+---
+
+`templates/console/` is the smallest ABP starter the CLI ships. `abp new <name> -t console` generates a single executable project that boots an `AbpApplication` inside the .NET Generic Host. Use it for daemons, schedulers, CLI utilities, or one-off scripts that still want the ABP module system.
+
+## Layout
+
+```text
+templates/console/
+├── MyCompanyName.MyProjectName.slnx
+├── common.props
+└── src/
+    └── MyCompanyName.MyProjectName/
+        ├── HelloWorldService.cs
+        ├── MyCompanyName.MyProjectName.csproj
+        ├── MyProjectNameHostedService.cs
+        ├── MyProjectNameModule.cs
+        ├── Program.cs
+        ├── Properties/
+        └── appsettings.json
+```
+
+The single `.csproj` (`templates/console/src/MyCompanyName.MyProjectName/MyCompanyName.MyProjectName.csproj`) targets `net10.0`, sets `<OutputType>Exe</OutputType>`, references `Volo.Abp.Autofac`, and pulls in `Microsoft.Extensions.Hosting` plus the Serilog hosting/console/file sinks:
+
+```xml templates/console/src/MyCompanyName.MyProjectName/MyCompanyName.MyProjectName.csproj
+<PropertyGroup>
+  <OutputType>Exe</OutputType>
+  <TargetFramework>net10.0</TargetFramework>
+  <Nullable>enable</Nullable>
+</PropertyGroup>
+
+<ItemGroup>
+  <ProjectReference Include="..\..\..\..\framework\src\Volo.Abp.Autofac\Volo.Abp.Autofac.csproj" />
+</ItemGroup>
+
+<ItemGroup>
+  <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+  <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+  <!-- Serilog console + file sinks -->
+</ItemGroup>
+```
+
+`Program.cs` builds a generic host, `MyProjectNameHostedService` is an `IHostedService` that runs once at startup, `MyProjectNameModule.cs` declares the `[DependsOn(typeof(AbpAutofacModule))]` module, and `HelloWorldService` is a sample transient service injected to demonstrate DI working.
+
+## Template registration
+
+`ConsoleTemplate` (`framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectBuilding/Templates/Console/ConsoleTemplate.cs`) registers under the name `"console"` and inherits the standard rename/clean steps from `ConsoleTemplateBase`. It does **not** carry UI or database options — `-u` and `-d` are ignored here.
+
+Pair it with `abp add-package` if you need to depend on additional ABP modules (`Volo.Abp.BackgroundJobs`, `Volo.Abp.EntityFrameworkCore`, …) after generation.
+
+<Card title="Other templates" href="/templates/overview">Choose a different starter shape.</Card>

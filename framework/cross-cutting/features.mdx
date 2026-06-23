@@ -1,0 +1,153 @@
+---
+title: "Features for editions and tenant gating"
+sidebarTitle: "Features"
+description: "IFeatureChecker, FeatureDefinitionManager, RequiresFeatureAttribute, and the Default → Configuration → Edition → Tenant provider chain."
+---
+
+`Volo.Abp.Features` is the per-tenant capability system that powers SaaS edition gating. It mirrors the settings architecture — definitions declared once, values resolved through a layered provider chain — but the values are interpreted as booleans (and arbitrary strings for numeric quotas) and the chain biases towards editions and tenants instead of users.
+
+## Module wiring
+
+```csharp
+// framework/src/Volo.Abp.Features/Volo/Abp/Features/AbpFeaturesModule.cs
+[DependsOn(typeof(AbpLocalizationModule), typeof(AbpMultiTenancyModule),
+           typeof(AbpValidationModule), typeof(AbpAuthorizationAbstractionsModule))]
+public class AbpFeaturesModule : AbpModule
+{
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.OnRegistered(FeatureInterceptorRegistrar.RegisterIfNeeded);
+        AutoAddDefinitionProviders(context.Services);
+    }
+
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.Configure<AbpFeatureOptions>(options =>
+        {
+            options.ValueProviders.Add<DefaultValueFeatureValueProvider>();    // "D"
+            options.ValueProviders.Add<ConfigurationFeatureValueProvider>();   // "C"
+            options.ValueProviders.Add<EditionFeatureValueProvider>();         // "E"
+            options.ValueProviders.Add<TenantFeatureValueProvider>();          // "T"
+        });
+    }
+}
+```
+
+`FeatureInterceptorRegistrar` attaches `FeatureInterceptor` to any service whose class or method carries `[RequiresFeature]`, so the gate runs even on direct C# calls. `AutoAddDefinitionProviders` discovers every `IFeatureDefinitionProvider` and adds it to `AbpFeatureOptions.DefinitionProviders`.
+
+## `IFeatureChecker`
+
+```csharp
+// IFeatureChecker.cs
+public interface IFeatureChecker
+{
+    Task<string?> GetOrNullAsync(string name);
+    Task<bool>    IsEnabledAsync(string name);
+    Task<Dictionary<string,bool>> IsEnabledAsync(string[] names);
+}
+```
+
+`FeatureCheckerBase` (`FeatureCheckerBase.cs`) turns the raw string into a boolean (`bool.Parse`) and throws `AbpException` if the value is not parseable — features can store numeric quotas as strings, but `IsEnabledAsync` requires a boolean.
+
+`FeatureChecker` (`FeatureChecker.cs`) implements `GetOrNullAsync` by reversing `FeatureValueProviderManager.ValueProviders` (so the *last* registered wins) and returning the first non-null value:
+
+```csharp
+var providers = FeatureValueProviderManager.ValueProviders.Reverse();
+if (featureDefinition.AllowedProviders.Any())
+    providers = providers.Where(p => featureDefinition.AllowedProviders.Contains(p.Name));
+
+foreach (var provider in providers)
+{
+    var value = await provider.GetOrNullAsync(feature);
+    if (value != null) return value;
+}
+return null;
+```
+
+## The provider chain
+
+| Order (read) | Provider | `Name` | Source | File |
+| --- | --- | --- | --- | --- |
+| 1 | `TenantFeatureValueProvider` | `"T"` | `IFeatureStore` keyed by `ICurrentTenant.Id`. | `Volo/Abp/Features/TenantFeatureValueProvider.cs` |
+| 2 | `EditionFeatureValueProvider` | `"E"` | `IFeatureStore` keyed by `EditionId` claim. | `Volo/Abp/Features/EditionFeatureValueProvider.cs` |
+| 3 | `ConfigurationFeatureValueProvider` | `"C"` | `IConfiguration["Features:<Name>"]`. | `Volo/Abp/Features/ConfigurationFeatureValueProvider.cs` |
+| 4 | `DefaultValueFeatureValueProvider` | `"D"` | `FeatureDefinition.DefaultValue`. | `Volo/Abp/Features/DefaultValueFeatureValueProvider.cs` |
+
+Restrict a feature to specific providers via `FeatureDefinition.AllowedProviders` (a `HashSet<string>` of names). Adding only `"E"` makes a feature edition-only — tenants cannot override it.
+
+`IFeatureStore` is the abstraction satisfied by `Volo.Abp.FeatureManagement` (which also exposes a `IFeatureManager` for writes). The default `NullFeatureStore` returns nulls so apps without that module fall through to configuration / defaults.
+
+## Defining features
+
+```csharp
+public class BookStoreFeatures : FeatureDefinitionProvider
+{
+    public override void Define(IFeatureDefinitionContext context)
+    {
+        var group = context.AddGroup("BookStore", L("Feature:BookStore"));
+
+        var pdfExport = group.AddFeature(
+            "BookStore.PdfExport",
+            defaultValue: "false",
+            displayName: L("Feature:PdfExport"),
+            description: L("Feature:PdfExport.Desc"));
+
+        pdfExport.CreateChild(
+            "BookStore.PdfExport.Watermark",
+            defaultValue: "true");
+    }
+}
+```
+
+`FeatureDefinition` (`FeatureDefinition.cs`) carries:
+
+- `Name` (unique), `DisplayName` (localised), `Description`.
+- `Parent` / `Children` — a parent must be enabled for any child to be enabled.
+- `DefaultValue` (`string`), `IsVisibleToClients`, `IsAvailableToHost`.
+- `AllowedProviders` (whitelist).
+- `ValueType` — a `IStringValueType` controlling the editor UI (boolean, number, free text, selection list).
+- `Properties` extra bag for custom metadata.
+
+The static store (`StaticFeatureDefinitionStore.cs`) caches the flattened tree on first use; an optional `IDynamicFeatureDefinitionStore` (default `NullDynamicFeatureDefinitionStore`) allows admin-managed features. `FeatureDefinitionManager` merges both, static-wins (`Volo/Abp/Features/FeatureDefinitionManager.cs`).
+
+## The `[RequiresFeature]` interceptor
+
+```csharp
+[RequiresFeature("BookStore.PdfExport")]
+public class PdfExportService : ApplicationService { … }
+```
+
+`FeatureInterceptor` calls `MethodInvocationFeatureCheckerService.CheckAsync(context)` which:
+
+1. Honours `[DisableFeatureCheck]` (declared on method or class).
+2. Collects every `RequiresFeatureAttribute` from the target method and its declaring type.
+3. Calls `IFeatureChecker.IsEnabledAsync(name)` for each requested feature; throws `AbpAuthorizationException` with code `AbpFeatureErrorCodes.FeatureIsNotEnabled` when any returns false.
+
+When multiple features are required, the attribute's `RequiresAll` flag determines whether the intersection or union is enforced (`RequiresAll = true` by default — every feature must be enabled).
+
+## Edition vs. tenant semantics
+
+`EditionFeatureValueProvider` reads the edition assigned to the current tenant (the `Volo.Abp.TenantManagement` module fills the edition ID). The chain is therefore `T → E → C → D`: tenants can opt *into* extras beyond what their edition gives them, but the saved tenant overrides win. To enforce a hard ceiling, set `AllowedProviders = { "E", "D" }` so tenant overrides are simply ignored.
+
+`AbpFeatureOptions` is the only mutable configuration surface:
+
+```csharp
+// AbpFeatureOptions.cs
+public ITypeList<IFeatureDefinitionProvider> DefinitionProviders { get; }
+public ITypeList<IFeatureValueProvider> ValueProviders { get; }
+public HashSet<string> DeletedFeatures { get; }
+```
+
+`DeletedFeatures` lets a host strip features its dependencies declared without modifying the upstream module.
+
+## Integration with the simple state checker
+
+`RequireFeaturesSimpleStateChecker` and `RequireFeaturesSimpleBatchStateChecker` (`Volo/Abp/Features/Require*SimpleStateChecker.cs`) plug into `ISimpleStateCheckerManager<T>`. The `Volo.Abp.Authorization` module uses these to gate permission availability behind feature toggles, so `PermissionChecker` returns `false` when a permission's feature requirement is not satisfied — see [authorization](/framework/cross-cutting/authorization).
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Global features" href="/framework/cross-cutting/global-features" />
+  <Card title="Settings" href="/framework/cross-cutting/settings" />
+  <Card title="Authorization" href="/framework/cross-cutting/authorization" />
+</CardGroup>

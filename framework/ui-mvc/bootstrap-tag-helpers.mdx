@@ -1,0 +1,168 @@
+---
+title: "Bootstrap Tag Helpers Reference: Forms, Cards, Tables, More"
+sidebarTitle: "Tag Helpers"
+description: "Complete reference of Volo.Abp.AspNetCore.Mvc.UI.Bootstrap tag helpers grouped by category, with target elements and source paths."
+---
+
+`Volo.Abp.AspNetCore.Mvc.UI.Bootstrap` wraps Bootstrap 5 markup behind Razor tag helpers so layouts stay declarative. Every helper is a normal `Microsoft.AspNetCore.Razor.TagHelpers.TagHelper` paired with an injectable `IAbpTagHelperService<T>` that does the rendering — the split is what makes them testable and DI-friendly. The base classes (`AbpTagHelper`, `AbpTagHelperService`, `IAbpTagHelperLocalizer`) live at the root of `framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bootstrap/TagHelpers/`.
+
+This page enumerates the tag helper categories shipped by the package. Each row is grounded in a real `*TagHelper.cs` source file under `framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bootstrap/TagHelpers/<Category>/`.
+
+## Forms
+
+`TagHelpers/Form/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpInputTagHelper` | `<abp-input>` | Renders a labelled `<input>` with model-binding, validation, info text, format control, and disabled/readonly handling. Drives most form inputs in ABP UIs. |
+| `AbpSelectTagHelper` | `<abp-select>` | Renders a labelled `<select>` from `SelectItems` or an enum-bound model property. |
+| `AbpRadioInputTagHelper` | `<abp-radio>` | Renders a labelled radio group from an enum or `AbpRadioButton` list. |
+| `AbpDynamicformTagHelper` | `<abp-dynamic-form>` | Reflects over a model and emits a complete form (label + input + validation) for each property using `AbpInputTagHelper` and friends. Honours `DynamicFormIgnore`, `DisplayOrder`. |
+| `AbpFormContentTagHelper` | `<abp-form-content />` | Placeholder injected by `AbpDynamicformTagHelper` to mark where custom child content should land. |
+| `AbpIdNameTagHelper` | `[abp-id-name]` attribute | Auto-generates stable `id`/`name` on any HTML element from a model expression. |
+| `AbpValidationAttributeTagHelper` | `[asp-validation-for]` / `[asp-validation-summary]` | Adds Bootstrap classes and `aria-*` to MVC's stock validation helpers. |
+
+The `TagHelpers/Form/DatePicker/` subfolder ships the `<abp-input type="date">` and `<abp-input type="datetime-local">` rendering for the bundled Tempus Dominus integration. Helpers like `Placeholder.cs`, `ReadOnlyInput.cs`, `DisabledInput.cs`, and `FormGroupItem.cs` are value objects used by the form helpers above.
+
+## Grid
+
+`TagHelpers/Grid/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpContainerTagHelper` | `<abp-container>` | `.container` / `.container-fluid` wrapper. |
+| `AbpRowTagHelper` | `<abp-row>` / `<abp-form-row>` | `.row` with optional gutter sizing. |
+| `AbpColumnTagHelper` | `<abp-column>` | `.col-{breakpoint}-{n}` with breakpoint attribute. |
+| `AbpColumnBreakerTagHelper` | `<abp-column-breaker>` | Inserts a `<div class="w-100"></div>` to force a new line in a row. |
+
+## Modal
+
+`TagHelpers/Modal/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpModalTagHelper` | `<abp-modal>` | Renders `.modal.fade` shell with `size` (`AbpModalSize`), `centered`, `scrollable`, `static-backdrop`. |
+| `AbpModalHeaderTagHelper` | `<abp-modal-header>` | `.modal-header` with auto-close button. |
+| `AbpModalBodyTagHelper` | `<abp-modal-body>` | `.modal-body`. |
+| `AbpModalFooterTagHelper` | `<abp-modal-footer>` | `.modal-footer` with `buttons` collection (`AbpModalButtons`) and `align` (`ButtonsAlign`). |
+
+`AbpModalSizeExtensions.cs` maps the enum (`Default`, `Small`, `Large`, `ExtraLarge`) to Bootstrap class suffixes.
+
+## Alert
+
+`TagHelpers/Alert/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpAlertTagHelper` | `<abp-alert>` | `.alert.alert-{type}` (`AlertType`). Supports `dismissible`. |
+| `AbpAlertHeaderTagHelper` | `<h1..h6>` inside `<abp-alert>` | Auto-applies `.alert-heading`. |
+| `AbpAlertLinkTagHelper` | `<a abp-alert-link>` | Auto-applies `.alert-link`. |
+
+## Card
+
+`TagHelpers/Card/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpCardTagHelper` | `<abp-card>` | `.card` wrapper with `background`, `text-color`, `border` props. |
+| `AbpCardHeaderTagHelper` | `<abp-card-header>` | `.card-header`. |
+| `AbpCardBodyTagHelper` | `<abp-card-body>` | `.card-body`. |
+| `AbpCardFooterTagHelper` | `<abp-card-footer>` | `.card-footer`. |
+| `AbpCardTitleTagHelper` | `<abp-card-title>` | `.card-title` with `HtmlHeadingType` selector. |
+| `AbpCardSubtitleTagHelper` | `<abp-card-subtitle>` | `.card-subtitle`. |
+| `AbpCardTextTagHelper` | `<abp-card-text>` | `.card-text`. |
+| `AbpCardLinkTagHelper` | `<a abp-card-link>` | `.card-link`. |
+| `AbpCardImageTagHelper` | `<img abp-card-image>` / `<abp-image abp-card-image>` | `.card-img-{position}` (`AbpCardImagePosition`). |
+| `AbpCardBackgroundTagHelper` | `<abp-card[-*] background="...">` | Applies `.bg-{AbpCardBackgroundType}` to card sub-elements. |
+| `AbpCardTextColorTagHelper` | `<abp-card[-*] text-color="...">` | Applies `.text-{AbpCardTextColorType}`. |
+
+## Button
+
+`TagHelpers/Button/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpButtonTagHelper` | `<abp-button>` | `.btn.btn-{ButtonType}` with `BusyText`, `IconType`/`Icon`, `Size`, `Disabled`. |
+| `AbpLinkButtonTagHelper` | `<a abp-button>` / `<input abp-button>` | Same look-and-feel for anchors and submit inputs. |
+| `AbpButtonGroupTagHelper` | `<abp-button-group>` | `.btn-group`. |
+| `AbpButtonToolbarTagHelper` | `<abp-button-toolbar>` | `.btn-toolbar`. |
+
+## Dropdown
+
+`TagHelpers/Dropdown/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpDropdownTagHelper` | `<abp-dropdown>` | `.dropdown` wrapper with `direction`, `split-toggle`. |
+| `AbpDropdownButtonTagHelper` | `<abp-dropdown-button>` | Toggle `.btn.dropdown-toggle`. |
+| `AbpDropdownMenuTagHelper` | `<abp-dropdown-menu>` | `.dropdown-menu`. |
+| `AbpDropdownItemTagHelper` | `<abp-dropdown-item>` | `.dropdown-item` anchor. |
+| `AbpDropdownItemTextTagHelper` | `<abp-dropdown-item-text>` | `.dropdown-item-text` for non-link content. |
+| `AbpDropdownHeaderTagHelper` | `<abp-dropdown-header>` | `.dropdown-header` label. |
+| `AbpDropdownDividerTagHelper` | `<abp-dropdown-divider />` | `<hr class="dropdown-divider">`. |
+
+## Tab
+
+`TagHelpers/Tab/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpTabsTagHelper` | `<abp-tabs>` | Tab container with `tab-style` (`pills`/`tabs`) and `vertical` flag. |
+| `AbpTabTagHelper` | `<abp-tab>` | Single tab pane. |
+| `AbpTabLinkTagHelper` | `<abp-tab-link />` | Link-only tab that targets an external anchor. |
+| `AbpTabDropdownTagHelper` | `<abp-tab-dropdown>` | Dropdown tab containing nested tabs. |
+
+## Breadcrumb
+
+`TagHelpers/Breadcrumb/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpBreadcrumbTagHelper` | `<abp-breadcrumb>` | `.breadcrumb` ordered list; reads `IPageLayout.Content.BreadCrumb` when no items declared. |
+| `AbpBreadcrumbItemTagHelper` | `<abp-breadcrumb-item>` | `.breadcrumb-item` with `href`, `active`. |
+
+## Pagination
+
+`TagHelpers/Pagination/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpPaginationTagHelper` | `<abp-paginator>` | Renders Bootstrap `.pagination` from a `PagerModel` (`current-page`, `page-size`, `total-count`, `show-info`). |
+
+## Toolbar (button toolbar + table toolbar)
+
+The page-level "toolbar" abstraction (top toolbar, page toolbar) lives in `Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared/Toolbars/` and is rendered via view components, not tag helpers. Inside a Razor page the *button* toolbar is `<abp-button-toolbar>` (see Button row above).
+
+## Progress
+
+`TagHelpers/ProgressBar/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpProgressGroupTagHelper` | `<abp-progress-group>` | `.progress` wrapper. |
+| `AbpProgressBarTagHelper` | `<abp-progress-bar>` / `<abp-progress-part>` | `.progress-bar` with `Value`, `MaxValue`, `Striped`, `Animated`, `Type`. The same component handles standalone bars and segments of a stacked bar. |
+
+## Table
+
+`TagHelpers/Table/`
+
+| Tag helper | Element | Description |
+| --- | --- | --- |
+| `AbpTableTagHelper` | `<abp-table>` | `.table` with `striped-rows`, `hover-effect`, `borderless`, `responsive`, `size` (`AbpTableSize`). |
+| `AbpTableHeaderTagHelper` | `<thead>` inside `<abp-table>` | Applies `.table-{variant}` head styling. |
+| `AbpTableHeadScopeTagHelper` | `<th>` | Sets `scope="col"` automatically. |
+| `AbpTableStyleTagHelper` | `<tr>` / `<td>` | Applies row-/cell-level Bootstrap state classes. |
+
+## Other categories
+
+These categories are also shipped — useful when composing layouts even though not in the brief above:
+
+`TagHelpers/Badge/` → `<abp-badge>`; `TagHelpers/Blockquote/` → `<abp-blockquote>`, `<abp-blockquote-paragraph>`, `<abp-blockquote-footer>`; `TagHelpers/Border/` → `<abp-border>`, `<abp-rounded>`; `TagHelpers/Carousel/` → `<abp-carousel>`, `<abp-carousel-item>`; `TagHelpers/Collapse/` → `<abp-collapse-body>`, `<abp-collapse-button>`, `<abp-accordion>`, `<abp-accordion-item>`; `TagHelpers/Figure/` → `<abp-figure>`, `<abp-figure-image>`, `<abp-figure-caption>`; `TagHelpers/ListGroup/` → `<abp-list-group>`, `<abp-list-group-item>`; `TagHelpers/Nav/` → `<abp-nav>`, `<abp-nav-bar>`, `<abp-nav-item>`, plus `[abp-nav-link]`, `[abp-navbar-brand]`, `<abp-navbar-nav>`, `<span abp-navbar-text>`, `<abp-navbar-toggle>`; `TagHelpers/Popover/` → `<abp-popover>`; `TagHelpers/Tooltip/` → `<abp-tooltip>`.
+
+## Implementation notes
+
+- Every helper has a sibling `*TagHelperService.cs` that contains the rendering logic. The DI split is what lets a host override behaviour: register a derived service via `Configure<MvcOptions>` and the tag helper picks it up automatically.
+- The shared `IAbpTagHelperLocalizer` (`AbpTagHelperLocalizer.cs`) is what resolves the display name from `ModelExpression` metadata — set localization on your DTO with `[DisplayName(...)]` or via a Localization Resource and every form helper picks it up.
+- Enums like `FontIconType`, `HtmlHeadingType`, `AbpCardImagePosition`, `AbpModalSize`, `AbpFormControlSize`, and `AbpCardBackgroundType` are the central styling vocabulary — `*Extensions.cs` companions convert them to Bootstrap class names.
+
+For how these helpers are composed into themes, see [Themes](/framework/ui-mvc/themes); for the unrelated *script/style* tag helpers that load assets, see [Bundling](/framework/aspnetcore/bundling).

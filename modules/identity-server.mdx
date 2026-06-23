@@ -1,0 +1,55 @@
+---
+title: "Identity Server Module: Legacy Duende Integration"
+sidebarTitle: "Identity Server"
+description: "Legacy authorization-server module wrapping Duende IdentityServer; superseded by OpenIddict for new applications."
+---
+
+The Identity Server module is ABP's wrapper around **Duende IdentityServer** (originally IdentityServer4). It pre-dates [OpenIddict](/modules/openiddict) and is now considered legacy — new applications should pick OpenIddict instead. The module is still maintained for projects that already shipped with IdentityServer.
+
+Source under `/home/daytona/repos/abpframework/abp/modules/identityserver/src/`:
+
+| Project | Notes |
+| --- | --- |
+| `Volo.Abp.IdentityServer.Domain.Shared` | Consts / errors |
+| `Volo.Abp.IdentityServer.Domain` | Aggregates, stores, ABP-aware Duende services |
+| `Volo.Abp.IdentityServer.EntityFrameworkCore` / `.MongoDB` | Persistence |
+| `Volo.Abp.IdentityServer.Installer` | NuGet `content` payload |
+| `Volo.Abp.PermissionManagement.Domain.IdentityServer` | Client-permission integration |
+
+## Aggregates
+
+Folders under `modules/identityserver/src/Volo.Abp.IdentityServer.Domain/Volo/Abp/IdentityServer/`:
+
+| Folder | Aggregate | Purpose |
+| --- | --- | --- |
+| `Clients/` | `Client` | Registered OAuth/OIDC client (corresponds to `OpenIddictApplication`) |
+| `ApiResources/` | `ApiResource` | Protected API + its claims |
+| `ApiScopes/` | `ApiScope` | Granular scopes for ApiResources |
+| `IdentityResources/` | `IdentityResource` | OIDC identity scopes (`openid`, `profile`, …) |
+| `Grants/` | `PersistedGrant` | Persisted refresh tokens / authorization codes / device codes |
+| `Devices/` | `DeviceFlowCodes` | Device authorization grant codes |
+| `Tokens/` | Token utilities | |
+| `Jwt/` | JWT signing key storage | |
+| `AspNetIdentity/` | ASP.NET Identity bridge | Maps `IdentityUser` claims into IdentityServer's `IUserClaimsPrincipalFactory` |
+
+ABP-specific services that override or extend Duende:
+
+- `AbpClaimsService.cs` / `AbpClaimsServiceOptions.cs` — adds dynamic claims to issued tokens.
+- `AbpCorsPolicyService.cs` / `AbpWildcardSubdomainCorsPolicyService.cs` — resolves allowed CORS origins from the `Client` store, with wildcard subdomain support.
+- `AbpStrictRedirectUriValidator.cs` — strict redirect-URI matching.
+- `AbpClientConfigurationValidator.cs` — extra validation on top of Duende's.
+- `ResourceStore.cs` — ABP repository-backed `IResourceStore`.
+- `AbpIdentityServerBuilderExtensions.cs` / `IdentityServerBuilderExtensions.cs` — wire all of the above into `services.AddIdentityServer()`.
+
+## When to choose what
+
+<CardGroup cols={2}>
+  <Card title="✅ Use OpenIddict" href="/modules/openiddict">
+    New apps. Open-source (no Duende license). Aligned with current ABP startup templates and microservice samples.
+  </Card>
+  <Card title="🟡 Use Identity Server">
+    Existing solutions already running on Duende IdentityServer. Migration to OpenIddict is supported but non-trivial.
+  </Card>
+</CardGroup>
+
+The login UI that pairs with this module is `Volo.Abp.Account.Web.IdentityServer` (see [Account](/modules/account)) — it adds a `Consent.cshtml` page that the OpenIddict variant doesn't need.

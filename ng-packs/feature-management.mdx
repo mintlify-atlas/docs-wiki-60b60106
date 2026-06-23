@@ -1,0 +1,40 @@
+---
+title: "@abp/ng.feature-management — Feature Toggle UI"
+sidebarTitle: "feature-management"
+description: "Modal that lists and edits per-tenant (or per-edition) features using grouped tabs, value-type-aware inputs, and the generated proxy client."
+---
+
+`@abp/ng.feature-management` (`npm/ng-packs/packages/feature-management/`) renders the feature editor opened from tenant management and edition management screens.
+
+## Source layout
+
+```
+packages/feature-management/
+├── proxy/                        // generated client (@abp/ng.feature-management/proxy)
+└── src/lib/
+    ├── feature-management.module.ts
+    ├── components/
+    │   ├── feature-management/       // <abp-feature-management>
+    │   └── feature-management-tab/   // per-group tab
+    ├── directives/
+    ├── enums/
+    ├── models/
+    └── providers/
+```
+
+## Usage
+
+```html
+<abp-feature-management
+  [(visible)]="visible"
+  providerName="T"
+  [providerKey]="tenant.id">
+</abp-feature-management>
+```
+
+The component fetches feature groups through `FeaturesService.get(...)` and renders one tab per group via `FeatureManagementTabComponent`. Each feature row dispatches on its `valueType` (boolean → checkbox, freetext → input, selection → select, numeric → numeric input). Save calls `FeaturesService.update(...)` with the changed values.
+
+<CardGroup cols={2}>
+  <Card title="tenant-management" href="/ng-packs/tenant-management">Opens this for each tenant</Card>
+  <Card title="setting-management" href="/ng-packs/setting-management">Sister settings editor</Card>
+</CardGroup>

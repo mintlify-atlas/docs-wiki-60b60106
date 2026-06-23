@@ -1,0 +1,62 @@
+---
+title: "AutoMapper Integration for IObjectMapper"
+sidebarTitle: "AutoMapper"
+description: "Wire AutoMapper profiles into ABP's IObjectMapper, with optional profile validation and a default 64-level MaxDepth across all maps."
+---
+
+`Volo.Abp.AutoMapper` plugs [AutoMapper](https://automapper.org/) into ABP's `IObjectMapper` abstraction. Profiles are registered through `AbpAutoMapperOptions`, validated at startup if you ask, and exposed through `IMapper` plus `IMapperAccessor`.
+
+## Module
+
+`AbpAutoMapperModule` registers `AbpAutoMapperConventionalRegistrar` (so types decorated with mapping attributes are picked up), builds a single `IConfigurationProvider` from the configured profiles, and exposes `IMapper` and `MapperAccessor`:
+
+```csharp framework/src/Volo.Abp.AutoMapper/Volo/Abp/AutoMapper/AbpAutoMapperModule.cs
+context.Services.AddAutoMapperObjectMapper();
+
+context.Services.AddSingleton<IConfigurationProvider>(sp =>
+{
+    using var scope = sp.CreateScope();
+    var options = scope.ServiceProvider.GetRequiredService<IOptions<AbpAutoMapperOptions>>().Value;
+    var mapperConfigurationExpression = ...;
+    foreach (var configurator in options.Configurators)
+        configurator(autoMapperConfigurationContext);
+
+    if (options.DefaultMaxDepth.HasValue)
+    {
+        mapperConfigurationExpression.Internal().ForAllMaps((typeMap, _) =>
+        {
+            if (typeMap.MaxDepth == 0) typeMap.MaxDepth = options.DefaultMaxDepth.Value;
+        });
+    }
+
+    var mapperConfiguration = new MapperConfiguration(mapperConfigurationExpression);
+
+    foreach (var profileType in options.ValidatingProfiles)
+        mapperConfiguration.Internal().AssertConfigurationIsValid(...);
+
+    return mapperConfiguration;
+});
+
+context.Services.AddTransient<IMapper>(
+    sp => sp.GetRequiredService<IConfigurationProvider>().CreateMapper(sp.GetService));
+```
+
+## Options
+
+```csharp framework/src/Volo.Abp.AutoMapper/Volo/Abp/AutoMapper/AbpAutoMapperOptions.cs
+public List<Action<IAbpAutoMapperConfigurationContext>> Configurators { get; }
+public ITypeList<Profile> ValidatingProfiles { get; set; }
+public int? DefaultMaxDepth { get; set; } = 64;
+```
+
+`AddMaps<TModule>(validate)` adds every `Profile` defined in `TModule`'s assembly and, when `validate` is true, queues each profile for `AssertConfigurationIsValid` at startup. `AddProfile<TProfile>()` adds a single profile.
+
+## LuckyPenny variant
+
+`Volo.Abp.LuckyPenny.AutoMapper` mirrors the same module structure (file `Volo.Abp.LuckyPenny.AutoMapper/Volo/Abp/AutoMapper/AbpLuckyPennyAutoMapperModule.cs`) but targets the LuckyPenny fork of AutoMapper — used when an application needs the commercial post-12.0 AutoMapper API surface. The public APIs (`AbpAutoMapperOptions`, `IAbpAutoMapperConfigurationContext`, `IMapperAccessor`) keep identical signatures so client code does not change.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Mapperly" icon="arrows-left-right" href="/framework/infra/mapperly" />
+</CardGroup>

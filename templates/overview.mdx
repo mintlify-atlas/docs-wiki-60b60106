@@ -1,0 +1,90 @@
+---
+title: "Solution Templates Overview: Kinds, Packaging, Placeholders"
+sidebarTitle: "Overview"
+description: "The templates/ folder ships every ABP startup template — `app`, `app-nolayers`, `module`, `console`, `maui`, `wpf` — zipped by zip-templates.ps1 and renamed at scaffold time."
+---
+
+The `templates/` folder at the root of the repository contains every project template the ABP CLI can scaffold. Each subfolder is a complete solution authored against the placeholder name `MyCompanyName.MyProjectName`; the CLI downloads a ZIP of that folder, renames it to the user's project name, and applies a pipeline of build steps (see [Project building](/tooling/project-building)).
+
+## What ships
+
+```text
+templates/
+├── Directory.Packages.props      # Central package versions used by every template
+├── NuGet.Config                  # Feeds (used by all templates during dev)
+├── zip-templates.ps1             # Build-time packager
+├── app/                          # Layered DDD application (the big one)
+│   ├── aspnet-core/              # Backend solution + 23 src/ projects
+│   └── angular/                  # SPA front-end
+├── app-nolayers/                 # Single-project / minimal variant
+│   ├── aspnet-core/              # MVC / Blazor Server / WASM + Mongo variants
+│   └── angular/
+├── module/                       # Reusable ABP module split into Domain/Application/Web…
+│   ├── aspnet-core/              # src/, host/, test/, database/, docker-compose.*
+│   └── angular/                  # Angular library + dev-app
+├── console/                      # Minimal Volo.Abp.Autofac console host
+├── maui/                         # .NET MAUI Blazor mobile/desktop client
+└── wpf/                          # WPF + ABP Autofac desktop client
+```
+
+The single-page reference for each kind:
+
+<CardGroup cols={2}>
+  <Card title="app" href="/templates/app">Layered DDD application (the default `abp new`).</Card>
+  <Card title="app-nolayers" href="/templates/app-nolayers">Single-project rapid-start variant.</Card>
+  <Card title="module" href="/templates/module">Reusable ABP module (Domain / Application / Web split).</Card>
+  <Card title="console" href="/templates/console">Headless console host.</Card>
+  <Card title="maui" href="/templates/maui">.NET MAUI Blazor client.</Card>
+  <Card title="wpf" href="/templates/wpf">WPF desktop client.</Card>
+  <Card title="angular" href="/templates/angular">Angular front-ends for `app` and `module`.</Card>
+</CardGroup>
+
+## The MyCompanyName.MyProjectName placeholder
+
+Every project, namespace, csproj, class name, and folder in the templates uses the literal string `MyCompanyName.MyProjectName`. That includes:
+
+- folder names — `templates/app/aspnet-core/src/MyCompanyName.MyProjectName.Application/`;
+- the `.slnx` solution file — `templates/app/aspnet-core/MyCompanyName.MyProjectName.slnx`;
+- DotSettings, common.props, NuGet.Config, abppkg, module class names, etc.
+
+The CLI's `SolutionRenameStep` / `ProjectRenameStep` (`framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectBuilding/Building/Steps/`) walks `context.Files` and replaces every occurrence — both directory names and file content — with the user's chosen `Acme.BookStore`-style project name. The first dotted segment becomes the company name; if the user types a single word it is treated as the project name with an empty company prefix.
+
+## Packaging via zip-templates.ps1
+
+`templates/zip-templates.ps1` is the simple PowerShell that turns each top-level folder into a versioned ZIP for distribution:
+
+```powershell templates/zip-templates.ps1
+$version = $args[0]
+$folders = Get-ChildItem -Directory
+
+foreach ($folder in $folders) {
+    $zipFile = "./" + $folder.Name + "-" + $version + ".zip"
+
+    if (Test-Path $zipFile) {
+        Remove-Item $zipFile
+    }
+
+    Compress-Archive -Path "$($folder.FullName)\*" -DestinationPath $zipFile
+}
+
+Write-Host "All templates have been zipped."
+```
+
+The resulting ZIPs (`app-9.x.x.zip`, `module-9.x.x.zip`, etc.) are uploaded to the abp.io download endpoints that `AbpIoSourceCodeStore.GetAsync` queries when `abp new` runs — see [Project building](/tooling/project-building) for the download/cache pipeline.
+
+## Per-template selection switches
+
+Most of what the user sees as command flags actually maps to template variants:
+
+| Flag | Selects between | Implemented by |
+| --- | --- | --- |
+| `-t/--template` | `app` / `app-nolayers` / `module` / `console` / `maui` / `wpf` | The top-level folder being downloaded. |
+| `-u/--ui` | `mvc` / `blazor` / `blazor-server` / `blazor-webapp` / `angular` / `none` | Project-keep/delete steps in `AppTemplate` / `AppNoLayersTemplate`. |
+| `-d/--database-provider` | `ef` (default) / `mongodb` | `DatabaseManagementSystemChangeStep`, `AppTemplateSwitchEntityFrameworkCoreToMongoDbStep`. |
+| `--tiered` | Single-host vs separated `HttpApi.Host` + `AuthServer` + `Web` | `ConfigureTieredArchitecture` in `AppTemplateBase`. |
+| `--separate-auth-server` | Inline IdentityServer/OpenIddict vs dedicated AuthServer project | `AngularEnvironmentFilePortChangeForSeparatedAuthServersStep`, etc. |
+| `--theme` | `leptonx-lite` (default) / `basic` / `leptonx` (pro) | `ChangeThemeStep` / `ChangeThemeStyleStep`. |
+| `-m/--mobile` | `none` / `react-native` / `maui` | Companion projects added/removed during the pipeline. |
+| `--dbms` | sqlserver / mysql / postgresql / oracle / oracle-devart / sqlite | `DatabaseManagementSystemChangeStep`. |
+
+See [`app`](/templates/app) for the full project matrix that these switches affect.

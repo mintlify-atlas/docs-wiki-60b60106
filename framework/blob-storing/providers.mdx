@@ -1,0 +1,83 @@
+---
+title: "BLOB Storing Providers: Modules and Backing Stores"
+sidebarTitle: "Providers"
+description: "Reference of every IBlobProvider shipped by ABP — NuGet packages, module classes, configuration types, and the underlying store each one targets."
+---
+
+A blob provider implements `IBlobProvider` and binds an ABP container to a real storage backend. You install the provider's NuGet package, add its module to your dependency graph, and set `BlobContainerConfiguration.ProviderType` (or call the `UseXyz()` extension) on each container that should use it. Multiple providers can coexist — selection is per-container.
+
+## Provider matrix
+
+| Provider | NuGet package | Module class | Configuration extension | Backing store |
+| --- | --- | --- | --- | --- |
+| Memory | `Volo.Abp.BlobStoring.Memory` | `AbpBlobStoringMemoryModule` | `UseMemory()` | In-process `ConcurrentDictionary` — testing and ephemeral data |
+| File System | `Volo.Abp.BlobStoring.FileSystem` | `AbpBlobStoringFileSystemModule` | `UseFileSystem(...)` → `FileSystemBlobProviderConfiguration` | Local or networked file system, rooted at `BasePath` |
+| Azure | `Volo.Abp.BlobStoring.Azure` | `AbpBlobStoringAzureModule` | `UseAzure(...)` → `AzureBlobProviderConfiguration` | Azure Blob Storage |
+| AWS | `Volo.Abp.BlobStoring.Aws` | `AbpBlobStoringAwsModule` | `UseAws(...)` → `AwsBlobProviderConfiguration` | Amazon S3 |
+| Google Cloud | `Volo.Abp.BlobStoring.Google` | `AbpBlobStoringGoogleModule` | `UseGoogle(...)` → `GoogleBlobProviderConfiguration` | Google Cloud Storage |
+| Aliyun | `Volo.Abp.BlobStoring.Aliyun` | `AbpBlobStoringAliyunModule` | `UseAliyun(...)` → `AliyunBlobProviderConfiguration` | Alibaba Cloud OSS |
+| MinIO | `Volo.Abp.BlobStoring.Minio` | `AbpBlobStoringMinioModule` | `UseMinio(...)` → `MinioBlobProviderConfiguration` | MinIO / any S3-compatible service |
+| Bunny | `Volo.Abp.BlobStoring.Bunny` | `AbpBlobStoringBunnyModule` | `UseBunny(...)` → `BunnyBlobProviderConfiguration` | bunny.net Storage |
+
+Provider class paths follow the pattern `framework/src/Volo.Abp.BlobStoring.{Name}/Volo/Abp/BlobStoring/{Name}/Abp{...}Module.cs`. Modules were located via `grep -l "AbpModule" -r` across each directory; every provider also ships a `{Name}BlobProvider.cs` (e.g., `AzureBlobProvider`, `AwsBlobProvider`) that implements `IBlobProvider`.
+
+## Configuration types
+
+Each provider ships a typed wrapper around the container's free-form property bag, plus a `{Name}BlobContainerConfigurationExtensions` static class with a `UseXyz(...)` extension that sets `ProviderType` and returns the typed config:
+
+- `Volo.Abp.BlobStoring.Memory/MemoryBlobContainerConfigurationExtensions.cs` — `MemoryBlobProvider` has no per-container settings; the extension only assigns `ProviderType`:
+
+```csharp framework/src/Volo.Abp.BlobStoring.Memory/Volo/Abp/BlobStoring/Memory/MemoryBlobContainerConfigurationExtensions.cs
+public static BlobContainerConfiguration UseMemory(this BlobContainerConfiguration containerConfiguration)
+{
+    containerConfiguration.ProviderType = typeof(MemoryBlobProvider);
+    return containerConfiguration;
+}
+```
+
+- `Volo.Abp.BlobStoring.FileSystem/FileSystemBlobProviderConfiguration.cs` — typed accessor with `BasePath` and `AppendContainerNameToBasePath` (default `true`).
+- `Volo.Abp.BlobStoring.Azure/AzureBlobProviderConfiguration.cs` — connection string, container name, create-if-not-exists flag.
+- `Volo.Abp.BlobStoring.Aws/AwsBlobProviderConfiguration.cs` — access keys, region, bucket name, temporary-credentials providers.
+- `Volo.Abp.BlobStoring.Google/GoogleBlobProviderConfiguration.cs` — credentials JSON or path, project, bucket.
+- `Volo.Abp.BlobStoring.Aliyun/AliyunBlobProviderConfiguration.cs` — endpoint, access key id/secret, bucket name.
+- `Volo.Abp.BlobStoring.Minio/MinioBlobProviderConfiguration.cs` — endpoint, access key/secret, bucket name, region, SSL flag.
+- `Volo.Abp.BlobStoring.Bunny/BunnyBlobProviderConfiguration.cs` — storage zone, API key, region.
+
+## Configuration recipe
+
+```csharp Configure providers
+[DependsOn(typeof(AbpBlobStoringAzureModule))]
+public class MyModule : AbpModule
+{
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        Configure<AbpBlobStoringOptions>(options =>
+        {
+            options.Containers.ConfigureDefault(c =>
+            {
+                c.UseAzure(azure =>
+                {
+                    azure.ConnectionString = "...";
+                    azure.ContainerName = "default";
+                    azure.CreateContainerIfNotExists = true;
+                });
+            });
+
+            options.Containers.Configure<UploadsContainer>(c =>
+                c.UseFileSystem(fs => { fs.BasePath = "/var/uploads"; }));
+        });
+    }
+}
+```
+
+Each `UseXyz` call sets `ProviderType` to the matching provider class; `DefaultBlobProviderSelector` then resolves the registered `IBlobProvider` instance whose unproxied type is assignable to that `ProviderType` (see `framework/src/Volo.Abp.BlobStoring/Volo/Abp/BlobStoring/DefaultBlobProviderSelector.cs`).
+
+## Naming normalizers
+
+Providers that target stores with restrictive naming rules register an `IBlobNamingNormalizer` and attach it through their `UseXyz` extension so the container's `NamingNormalizers` list contains it automatically. Provider-specific normalizers live alongside the provider class (e.g., `AzureBlobNamingNormalizer`, `AwsBlobNamingNormalizer`, `MinioBlobNamingNormalizer`).
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="BLOB Storing Overview" icon="boxes-stacked" href="/framework/blob-storing/overview" />
+</CardGroup>

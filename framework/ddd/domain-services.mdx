@@ -1,0 +1,104 @@
+---
+title: "Domain Services — DomainService Base & Marker Interface"
+sidebarTitle: "Domain Services"
+description: "When ABP wants you to model behaviour as a Domain Service, the base class on offer and the ambient services it lazily wires for you."
+---
+
+A *domain service* in ABP holds logic that does not naturally belong on a single aggregate — typically because it coordinates multiple aggregates, talks to a domain-relevant infrastructure port (e.g. an identity provider), or implements a policy that should be tested against the domain language. ABP gives you two micro-types in `framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Services/`: the marker `IDomainService` and the convenience base `DomainService`. Both are intentionally tiny so they do not pull domain code towards "fat service" anti-patterns.
+
+## Source Inventory
+
+| File | Purpose |
+| --- | --- |
+| `Volo/Abp/Domain/Services/IDomainService.cs` | Marker interface; extends `ITransientDependency` so implementations are auto-registered. |
+| `Volo/Abp/Domain/Services/DomainService.cs` | Abstract base with lazy property injection for the common ambient services. |
+
+## `IDomainService`
+
+```csharp
+// framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Services/IDomainService.cs
+public interface IDomainService : ITransientDependency
+{
+}
+```
+
+That is the entire contract. By extending `ITransientDependency`, any class implementing `IDomainService` is picked up by `DefaultConventionalRegistrar` (see [Dependency Injection](/framework/core/dependency-injection)) and registered with transient lifetime — no `[Dependency]` attribute or manual `services.Add...` required.
+
+## `DomainService` Base Class
+
+```csharp
+// framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Services/DomainService.cs
+public abstract class DomainService : IDomainService
+{
+    public IAbpLazyServiceProvider LazyServiceProvider { get; set; } = default!;
+
+    [Obsolete("Use LazyServiceProvider instead.")]
+    public IServiceProvider ServiceProvider { get; set; } = default!;
+
+    protected IClock Clock                         => LazyServiceProvider.LazyGetRequiredService<IClock>();
+    protected IGuidGenerator GuidGenerator         => LazyServiceProvider.LazyGetService<IGuidGenerator>(SimpleGuidGenerator.Instance);
+    protected ILoggerFactory LoggerFactory         => LazyServiceProvider.LazyGetRequiredService<ILoggerFactory>();
+    protected ICurrentTenant CurrentTenant         => LazyServiceProvider.LazyGetRequiredService<ICurrentTenant>();
+    protected IAsyncQueryableExecuter AsyncExecuter => LazyServiceProvider.LazyGetRequiredService<IAsyncQueryableExecuter>();
+    protected ILogger Logger                       => LazyServiceProvider.LazyGetService<ILogger>(provider =>
+        LoggerFactory?.CreateLogger(GetType().FullName!) ?? NullLogger.Instance);
+}
+```
+
+Every property is resolved through `IAbpLazyServiceProvider`, so a domain service only pays for what it touches. The set is deliberately *narrower* than [`ApplicationService`](/framework/ddd/application-services) — no `IObjectMapper`, no `IAuthorizationService`, no `ISettingProvider`, no `IFeatureChecker`. Those concerns belong at the application boundary; pushing them into the domain leaks transport details.
+
+## When to Use a Domain Service
+
+The framework does not enforce a rule, but the practical heuristic — visible across the ABP modules (Identity, OpenIddict, SaaS, CMS Kit) — is:
+
+1. **Operation spans multiple aggregates** that have to remain mutually consistent (e.g. `IdentityUserManager` updating both `IdentityUser` and `IdentityRole` invariants).
+2. **The aggregate would need infrastructure** it should not depend on (sending an email, hashing a password). Inject the port in the domain service, not the aggregate.
+3. **A multi-step policy** needs to be testable in pure domain terms (e.g. `OrderApprovalManager.ApproveAsync(order, approver)`).
+
+Anything that is a method on a single aggregate should stay on the aggregate. Anything that is a *use case* belongs on an [Application Service](/framework/ddd/application-services).
+
+## Example Shape
+
+```csharp
+public class OrderPricingManager : DomainService
+{
+    private readonly IRepository<DiscountPolicy, Guid> _policies;
+
+    public OrderPricingManager(IRepository<DiscountPolicy, Guid> policies)
+    {
+        _policies = policies;
+    }
+
+    public async Task<Money> ApplyDiscountsAsync(Order order)
+    {
+        var policies = await _policies.GetListAsync(p => p.IsActive);
+        var total    = order.Items.Sum(i => i.UnitPrice * i.Quantity);
+        foreach (var policy in policies)
+            total = policy.Apply(order, total, Clock.Now);
+        return new Money(total, order.Currency);
+    }
+}
+```
+
+`Clock.Now` is the lazy-resolved `IClock` — `OrderPricingManager` never reaches for `DateTime.UtcNow` directly, keeping time deterministic in tests via the swappable clock.
+
+## Lifetime and Property Injection
+
+Because `IDomainService` extends `ITransientDependency`, every call to `LazyServiceProvider.LazyGetRequiredService<OrderPricingManager>()` returns a fresh instance, and Autofac (with the [DI hybrid](/framework/core/dependency-injection)) populates `LazyServiceProvider` via property injection on construction. If you prefer the `IServiceProvider` style instead of property-style access, inject `IAbpLazyServiceProvider` in the constructor and call its methods directly — both routes work, but property injection keeps the constructor clean.
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Application Services" icon="cogs" href="/framework/ddd/application-services">
+    The other base class — and the natural caller of domain services.
+  </Card>
+  <Card title="Entities & Aggregates" icon="boxes-stacked" href="/framework/ddd/entities-and-aggregates">
+    Where most behaviour belongs before it justifies a domain service.
+  </Card>
+  <Card title="Dependency Injection" icon="syringe" href="/framework/core/dependency-injection">
+    How `IDomainService → ITransientDependency` is auto-registered.
+  </Card>
+  <Card title="DDD Overview" icon="diagram-project" href="/framework/ddd/overview">
+    Where domain services live in the four-layer module graph.
+  </Card>
+</CardGroup>

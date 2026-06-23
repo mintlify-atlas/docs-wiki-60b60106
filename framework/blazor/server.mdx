@@ -1,0 +1,134 @@
+---
+title: "Blazor Server Hosting: Module, Hub Mapping, and Theming"
+sidebarTitle: "Server"
+description: "AbpAspNetCoreComponentsServerModule, /_blazor hub registration, audit/UoW exclusions, and the Server.Theming bundling module."
+---
+
+`Volo.Abp.AspNetCore.Components.Server` is the host-side glue between ABP and Blazor Server. It teaches the framework's MVC and SignalR pipelines about the `/_blazor` endpoint, configures the per-circuit DI scope, and either maps the Blazor hub itself (classic Server hosting) or steps aside when the project is a Blazor WebApp that wires hubs differently.
+
+Source: `framework/src/Volo.Abp.AspNetCore.Components.Server/` and the theming companion `framework/src/Volo.Abp.AspNetCore.Components.Server.Theming/`.
+
+## Module dependencies and what they unlock
+
+`Volo/Abp/AspNetCore/Components/Server/AbpAspNetCoreComponentsServerModule.cs`:
+
+```csharp
+[DependsOn(
+    typeof(AbpHttpClientModule),
+    typeof(AbpAspNetCoreComponentsWebModule),
+    typeof(AbpAspNetCoreSignalRModule),
+    typeof(AbpEventBusModule),
+    typeof(AbpAspNetCoreMvcContractsModule)
+)]
+public class AbpAspNetCoreComponentsServerModule : AbpModule
+```
+
+The `AbpAspNetCoreSignalRModule` dependency is what makes Blazor Server inherit the framework's `IHubFilter` pipeline — authentication, audit logging, hub-context-accessor (see [SignalR](/framework/aspnetcore/signalr)) — because Blazor Server's `/_blazor` endpoint is a SignalR hub under the hood. The `AbpHttpClientModule` and `AbpAspNetCoreMvcContractsModule` dependencies give server-side components access to HTTP client proxies and MVC API contract types without an extra reference.
+
+## ConfigureServices
+
+```csharp
+public override void ConfigureServices(ServiceConfigurationContext context)
+{
+    context.Services.AddHttpClient(nameof(BlazorServerLookupApiRequestService))
+        .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All
+        });
+
+    var serverSideBlazorBuilder = context.Services.AddServerSideBlazor(options =>
+    {
+        if (context.Services.GetHostingEnvironment().IsDevelopment())
+        {
+            options.DetailedErrors = true;
+        }
+    });
+    context.Services.ExecutePreConfiguredActions(serverSideBlazorBuilder);
+
+    Configure<AbpAspNetCoreUnitOfWorkOptions>(options =>
+    {
+        options.IgnoredUrls.AddIfNotContains("/_blazor");
+    });
+
+    Configure<AbpAspNetCoreAuditingOptions>(options =>
+    {
+        options.IgnoredUrls.AddIfNotContains("/_blazor");
+    });
+    // ... (endpoint mapping below)
+}
+```
+
+Three concrete decisions worth highlighting:
+
+- The `BlazorServerLookupApiRequestService` named HttpClient (used by the framework's typeahead lookup helpers) gets `AutomaticDecompression = All` so it can talk to gzipped APIs without configuration.
+- `AbpAspNetCoreUnitOfWorkOptions.IgnoredUrls.Add("/_blazor")` keeps the global UoW middleware off the SignalR endpoint — Blazor Server methods open their own UoW scopes per interaction, and a per-hub-connection UoW would never close.
+- `AbpAspNetCoreAuditingOptions.IgnoredUrls.Add("/_blazor")` similarly avoids one giant audit log entry per long-lived circuit; auditing is instead driven by `AbpAuditHubFilter`.
+
+`ExecutePreConfiguredActions(serverSideBlazorBuilder)` is the pattern that lets any feature module call `PreConfigure<IServerSideBlazorBuilder>(...)` in its own `PreConfigureServices` (e.g. to add a circuit handler or `IComponentEndpointRouteBuilder` extension). Those actions run *after* the framework's own configuration.
+
+## Endpoint mapping: classic vs Blazor WebApp
+
+The last block of `ConfigureServices` only maps `/_blazor` when the host is *not* a Blazor WebApp:
+
+```csharp
+if (!context.Services.ExecutePreConfiguredActions<AbpAspNetCoreComponentsWebOptions>().IsBlazorWebApp)
+{
+    var preConfigureActions = context.Services.GetPreConfigureActions<HttpConnectionDispatcherOptions>();
+    Configure<AbpEndpointRouterOptions>(options =>
+    {
+        options.EndpointConfigureActions.Add(endpointContext =>
+        {
+            endpointContext.Endpoints.MapBlazorHub(httpConnectionDispatcherOptions =>
+            {
+                preConfigureActions.Configure(httpConnectionDispatcherOptions);
+            });
+            endpointContext.Endpoints.MapFallbackToPage("/_Host");
+        });
+    });
+}
+```
+
+In a classic Blazor Server template, the module adds `endpoints.MapBlazorHub(...)` and `endpoints.MapFallbackToPage("/_Host")` to `AbpEndpointRouterOptions`. The application's `UseConfiguredEndpoints()` then materialises those.
+
+A Blazor WebApp (ASP.NET Core 8+ unified template) sets `AbpAspNetCoreComponentsWebOptions.IsBlazorWebApp = true` in a `PreConfigureServices` step. Because the unified template calls `app.MapRazorComponents<App>().AddInteractiveServerRenderMode()` itself, the module skips its `MapBlazorHub` so we don't double-register.
+
+`PreConfigure<HttpConnectionDispatcherOptions>(...)` lets a module tweak SignalR transport options (max message size, keep-alive interval) before the hub is mapped.
+
+## Server.Theming: Blazor-shaped bundle slot
+
+`framework/src/Volo.Abp.AspNetCore.Components.Server.Theming/AbpAspNetCoreComponentsServerThemingModule.cs` is the bridge into the bundling system (see [Bundling](/framework/aspnetcore/bundling)):
+
+```csharp
+[DependsOn(
+    typeof(AbpAspNetCoreComponentsServerModule),
+    typeof(AbpAspNetCoreMvcUiPackagesModule),
+    typeof(AbpAspNetCoreComponentsWebThemingModule),
+    typeof(AbpAspNetCoreMvcUiBundlingModule)
+)]
+public class AbpAspNetCoreComponentsServerThemingModule : AbpModule
+{
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        Configure<AbpBundlingOptions>(options =>
+        {
+            options.StyleBundles.Add(BlazorStandardBundles.Styles.Global, bundle =>
+                bundle.AddContributors(typeof(BlazorGlobalStyleContributor)));
+
+            options.ScriptBundles.Add(BlazorStandardBundles.Scripts.Global, bundle =>
+                bundle.AddContributors(typeof(BlazorGlobalScriptContributor)));
+        });
+    }
+}
+```
+
+It declares two Blazor-scoped bundles (`BlazorStandardBundles.Styles.Global`, `BlazorStandardBundles.Scripts.Global`) that are *separate* from the MVC `StandardBundles.Styles.Global` so MVC-only assets do not leak into Blazor pages. The companion `BlazorServerComponentBundleManager.cs` is a Blazor-aware `IBundleManager` that resolves bundle URLs at component render time rather than from a Razor tag helper.
+
+The `AbpAspNetCoreComponentsServerThemingMudBlazor` (in `framework/src/Volo.Abp.AspNetCore.Components.Server.Theming.MudBlazor/`) extends this with MudBlazor-specific contributors — see [MudBlazor](/framework/blazor/mudblazor).
+
+## Render-mode-specific services
+
+`BlazorServerLookupApiRequestService.cs` (Extensibility folder) is the Blazor-Server implementation of `ILookupApiRequestService` — the helper that the framework's extensible data grid uses to populate dropdowns from a `GET` endpoint. It uses a typed `IHttpClient` because Blazor Server runs in the same process as the API but a Blazor WebApp may have separated client/server, so the HTTP-shaped abstraction stays consistent.
+
+`Microsoft/AspNetCore/Authentication/Cookies/CookieAuthenticationOptionsExtensions.cs` adds an `AddAbpDistributedCookieAuthenticationTicketStore(...)` helper that swaps the in-memory ticket store for a distributed cache — important for scale-out Blazor Server farms where circuits can migrate.
+
+For the parallel WebAssembly module see [WebAssembly](/framework/blazor/webassembly); for the shared component base see [Blazor Overview](/framework/blazor/overview).

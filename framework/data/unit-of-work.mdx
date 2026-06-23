@@ -1,0 +1,323 @@
+---
+title: "Unit of Work Lifecycle, Transactions, and Event Ordering"
+sidebarTitle: "Unit of Work"
+description: "Deep dive into Volo.Abp.Uow: ambient scope, nested child UoWs, transactional API, SaveChanges semantics, and distributed event ordering."
+---
+
+The ABP Unit of Work (UoW) module owns transaction boundaries, ambient scope propagation, deferred event publishing, and the contract that EF Core, MongoDB, Dapper, and the in-memory provider plug into. Every application service method, every controller action, and every domain repository call participates — directly or transitively — in a UoW.
+
+Everything in this page comes from `framework/src/Volo.Abp.Uow/Volo/Abp/Uow/`. The module is bootstrapped by [`AbpUnitOfWorkModule`](#module-bootstrap-and-interceptor) and a UoW is created on demand by `IUnitOfWorkManager`.
+
+## File inventory
+
+| Concern | File | Role |
+| --- | --- | --- |
+| Interface | `IUnitOfWork.cs` | Public UoW contract: lifecycle + event recorders. |
+| Default impl | `UnitOfWork.cs` | Transient, `_databaseApis` / `_transactionApis` registries. |
+| Manager | `IUnitOfWorkManager.cs`, `UnitOfWorkManager.cs` | Begin / Reserve / TryBeginReserved. |
+| Ambient | `IAmbientUnitOfWork.cs`, `AmbientUnitOfWork.cs` | `AsyncLocal<IUnitOfWork>` flow. |
+| Nested | `ChildUnitOfWork.cs` | Internal sealed wrapper used when joining the ambient UoW. |
+| Options | `AbpUnitOfWorkOptions.cs`, `AbpUnitOfWorkDefaultOptions.cs`, `UnitOfWorkAttribute.cs` | Per-call options. |
+| Database APIs | `IDatabaseApi.cs`, `IDatabaseApiContainer.cs`, `ISupportsSavingChanges.cs`, `ISupportsRollback.cs` | Pluggable persistence handles. |
+| Transaction APIs | `ITransactionApi.cs`, `ITransactionApiContainer.cs` | Pluggable commit/rollback hook. |
+| Events | `UnitOfWorkEventRecord.cs`, `EventOrderGenerator.cs`, `IUnitOfWorkEventPublisher.cs` | Deferred local / distributed events. |
+| Interception | `UnitOfWorkInterceptor.cs`, `UnitOfWorkInterceptorRegistrar.cs`, `UnitOfWorkHelper.cs` | `[UnitOfWork]` attribute support. |
+| Module | `AbpUnitOfWorkModule.cs` | Registers the dynamic-proxy interceptor. |
+
+## Lifecycle at a glance
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Caller
+    participant Interceptor as UnitOfWorkInterceptor
+    participant Manager as IUnitOfWorkManager
+    participant Ambient as IAmbientUnitOfWork
+    participant UoW as UnitOfWork
+    participant DbApi as IDatabaseApi(s)
+    participant TxApi as ITransactionApi(s)
+    participant Publisher as IUnitOfWorkEventPublisher
+
+    Caller->>Interceptor: invoke [UnitOfWork] method
+    Interceptor->>Manager: TryBeginReserved or Begin(options)
+    Manager->>Ambient: SetUnitOfWork(new uow)
+    Ambient-->>UoW: ambient pointer
+    Caller->>UoW: repository writes register IDatabaseApi / ITransactionApi
+    Caller->>UoW: AddOrReplaceLocalEvent / AddOrReplaceDistributedEvent
+    Caller->>Interceptor: method returns
+    Interceptor->>UoW: CompleteAsync()
+    UoW->>DbApi: SaveChangesAsync()
+    loop while events pending
+        UoW->>Publisher: PublishLocalEventsAsync(ordered)
+        UoW->>Publisher: PublishDistributedEventsAsync(ordered)
+        UoW->>DbApi: SaveChangesAsync() (handlers may have written)
+    end
+    UoW->>TxApi: CommitAsync()
+    UoW->>Caller: IsCompleted = true; OnCompletedAsync handlers fire
+    UoW->>Ambient: Disposed → restores outer UoW
+```
+
+## Module bootstrap and interceptor
+
+`AbpUnitOfWorkModule.cs` is intentionally tiny:
+
+```csharp
+public class AbpUnitOfWorkModule : AbpModule
+{
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.OnRegistered(UnitOfWorkInterceptorRegistrar.RegisterIfNeeded);
+    }
+}
+```
+
+`UnitOfWorkInterceptorRegistrar` inspects every registered service. A type opts in by being `IUnitOfWorkEnabled`, carrying `[UnitOfWork]` on the class, or having any method decorated with `[UnitOfWork]`. The check is in `UnitOfWorkHelper.IsUnitOfWorkType(...)`.
+
+When the interceptor fires (`UnitOfWorkInterceptor.cs`) it computes options, then chooses one of three paths:
+
+```csharp
+if (unitOfWorkManager.TryBeginReserved(UnitOfWork.UnitOfWorkReservationName, options))
+{
+    await invocation.ProceedAsync();
+    if (unitOfWorkManager.Current != null)
+        await unitOfWorkManager.Current.SaveChangesAsync();
+    return;
+}
+
+using (var uow = unitOfWorkManager.Begin(options))
+{
+    await invocation.ProceedAsync();
+    await uow.CompleteAsync();
+}
+```
+
+The reservation path is used by ASP.NET middleware: the request pipeline reserves a UoW named `_AbpActionUnitOfWork` so the application-service method can attach to the request-wide scope instead of starting its own.
+
+### Auto-transactional default
+
+If `[UnitOfWork]` does not specify `IsTransactional`, the interceptor consults `IUnitOfWorkTransactionBehaviourProvider` and ultimately falls back to: methods whose name does not start with `Get` are transactional, others are not.
+
+```csharp
+options.IsTransactional = defaultOptions.CalculateIsTransactional(
+    autoValue: serviceProvider.GetRequiredService<IUnitOfWorkTransactionBehaviourProvider>().IsTransactional
+               ?? !invocation.Method.Name.StartsWith("Get", StringComparison.InvariantCultureIgnoreCase)
+);
+```
+
+## The manager: Begin, Reserve, Join
+
+`UnitOfWorkManager.Begin(options, requiresNew)` in `UnitOfWorkManager.cs`:
+
+```csharp
+public IUnitOfWork Begin(AbpUnitOfWorkOptions options, bool requiresNew = false)
+{
+    var currentUow = Current;
+    if (currentUow != null && !requiresNew)
+    {
+        return new ChildUnitOfWork(currentUow);
+    }
+
+    var unitOfWork = CreateNewUnitOfWork();
+    unitOfWork.Initialize(options);
+    return unitOfWork;
+}
+```
+
+Key behaviours:
+
+- **Join semantics** — when an ambient UoW exists and the caller does not demand a new one, the manager returns a `ChildUnitOfWork`. The child forwards every call to the parent **except** `CompleteAsync()` which becomes a no-op (`return Task.CompletedTask;` in `ChildUnitOfWork.cs`) and `Dispose()` which does nothing. Only the outermost `Begin` actually commits.
+- **`requiresNew = true`** — forces a brand new `UnitOfWork`, with `Outer` pointing to the previous ambient one. The previous UoW remains "above" on the stack.
+- **`Reserve(reservationName)`** — creates a UoW in reserved state (`IsReserved = true`). `IAmbientUnitOfWork.GetCurrentByChecking()` skips reserved UoWs, so calls inside still appear to have no ambient UoW until `TryBeginReserved` initializes it.
+- **Scope lifetime** — each new UoW gets its own `IServiceScope`. The `Disposed` event resets the ambient pointer back to the outer UoW and disposes the scope.
+
+```csharp
+unitOfWork.Disposed += (sender, args) =>
+{
+    _ambientUnitOfWork.SetUnitOfWork(outerUow);
+    scope.Dispose();
+};
+```
+
+## Ambient flow
+
+`AmbientUnitOfWork` stores the active UoW in an `AsyncLocal<IUnitOfWork?>` so it flows across `await` boundaries automatically:
+
+```csharp
+public IUnitOfWork? GetCurrentByChecking()
+{
+    var uow = UnitOfWork;
+    while (uow != null && (uow.IsReserved || uow.IsDisposed || uow.IsCompleted))
+    {
+        uow = uow.Outer;
+    }
+    return uow;
+}
+```
+
+Walking `Outer` lets framework code "see through" reserved / completed UoWs and find the first live one.
+
+## Database and transaction APIs
+
+`IDatabaseApi` is a marker interface — concrete persistence providers register their own implementations. EF Core, for example, plugs in a `EfCoreDatabaseApi` that implements `ISupportsSavingChanges` and `ISupportsRollback`. MongoDB plugs in `MongoDbDatabaseApi`. They are stored in the UoW's internal dictionary keyed by a string (typically the connection-string name or DbContext type), via:
+
+```csharp
+public virtual IDatabaseApi GetOrAddDatabaseApi(string key, Func<IDatabaseApi> factory)
+{
+    return _databaseApis.GetOrAdd(key, factory);
+}
+```
+
+`ITransactionApi` is similar but owns the commit/rollback. Providers register their EF transaction or Mongo session here. On `CompleteAsync` the UoW iterates `GetAllActiveTransactionApis()` and calls `CommitAsync(cancellationToken)`. On `Dispose` it iterates them again to free unmanaged resources.
+
+```csharp
+public interface ITransactionApi : IDisposable
+{
+    Task CommitAsync(CancellationToken cancellationToken = default);
+}
+```
+
+## SaveChanges, Complete, and event ordering
+
+`UnitOfWork.SaveChangesAsync` walks every active database API that implements `ISupportsSavingChanges` and invokes its `SaveChangesAsync`. It is **idempotent and re-entrant** — middleware and interceptors call it multiple times.
+
+`CompleteAsync` is the one-shot commit. It is the algorithmic heart of the UoW:
+
+```csharp
+public virtual async Task CompleteAsync(CancellationToken cancellationToken = default)
+{
+    if (_isRolledback) return;
+    PreventMultipleComplete();
+    try
+    {
+        _isCompleting = true;
+        await SaveChangesAsync(cancellationToken);
+
+        LocalEvents.AddRange(GetEventsRecords(LocalEventWithPredicates));
+        LocalEventWithPredicates.Clear();
+        DistributedEvents.AddRange(GetEventsRecords(DistributedEventWithPredicates));
+        DistributedEventWithPredicates.Clear();
+
+        while (LocalEvents.Any() || DistributedEvents.Any())
+        {
+            if (LocalEvents.Any())
+            {
+                var localEventsToBePublished = LocalEvents.OrderBy(e => e.EventOrder).ToArray();
+                LocalEvents.Clear();
+                await UnitOfWorkEventPublisher.PublishLocalEventsAsync(localEventsToBePublished);
+            }
+
+            if (DistributedEvents.Any())
+            {
+                var distributedEventsToBePublished = DistributedEvents.OrderBy(e => e.EventOrder).ToArray();
+                DistributedEvents.Clear();
+                await UnitOfWorkEventPublisher.PublishDistributedEventsAsync(distributedEventsToBePublished);
+            }
+
+            await SaveChangesAsync(cancellationToken);
+            LocalEvents.AddRange(GetEventsRecords(LocalEventWithPredicates));
+            LocalEventWithPredicates.Clear();
+            DistributedEvents.AddRange(GetEventsRecords(DistributedEventWithPredicates));
+            DistributedEventWithPredicates.Clear();
+        }
+
+        await CommitTransactionsAsync(cancellationToken);
+        IsCompleted = true;
+        await OnCompletedAsync();
+    }
+    catch (Exception ex)
+    {
+        _exception = ex;
+        throw;
+    }
+}
+```
+
+The loop is critical:
+
+1. Save changes flush queued writes to the database.
+2. Local events fire first (in `EventOrder` order). Handlers may write more entities and queue more events.
+3. Distributed events fire next, again in order. They typically go to an outbox so the publish is atomic with the transaction.
+4. Loop until both queues are drained.
+5. Commit every transaction API. Only after a successful commit are `IsCompleted` set and `OnCompletedAsync` handlers invoked.
+
+### Event order generator
+
+`EventOrderGenerator.cs` ensures stable cross-process ordering even when multiple repositories queue events concurrently:
+
+```csharp
+public static class EventOrderGenerator
+{
+    private static long _lastOrder;
+    public static long GetNext() => Interlocked.Increment(ref _lastOrder);
+}
+```
+
+A `UnitOfWorkEventRecord` captures `EventType`, `EventData`, `EventOrder`, and `UseOutbox`. Events are enqueued with an optional `replacementSelector` predicate so domain logic can replace earlier "updated" events with a later "deleted" event for the same aggregate — see `AddOrReplaceLocalEvent` and `GetEventsRecords` in `UnitOfWork.cs`.
+
+### Rollback
+
+`RollbackAsync` sets `_isRolledback = true` and walks both database APIs (for `ISupportsRollback`) and transaction APIs. Subsequent `SaveChangesAsync` and `CompleteAsync` calls become no-ops.
+
+### Failure and disposal
+
+`Dispose()` is the safety net:
+
+```csharp
+public virtual void Dispose()
+{
+    if (IsDisposed) return;
+    IsDisposed = true;
+    DisposeTransactions();
+    if (!IsCompleted || _exception != null)
+        OnFailed();
+    OnDisposed();
+}
+```
+
+If the caller never called `CompleteAsync`, or the call threw, the `Failed` event fires with the captured exception. Every transaction API is disposed regardless to prevent leaked connections.
+
+## The `[UnitOfWork]` attribute
+
+`UnitOfWorkAttribute.cs` is a declarative marker:
+
+```csharp
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class | AttributeTargets.Interface)]
+public class UnitOfWorkAttribute : Attribute
+{
+    public bool? IsTransactional { get; set; }
+    public int? Timeout { get; set; }
+    public IsolationLevel? IsolationLevel { get; set; }
+    public bool IsDisabled { get; set; }
+
+    public virtual void SetOptions(AbpUnitOfWorkOptions options)
+    {
+        if (IsTransactional.HasValue) options.IsTransactional = IsTransactional.Value;
+        if (Timeout.HasValue)         options.Timeout         = Timeout;
+        if (IsolationLevel.HasValue)  options.IsolationLevel  = IsolationLevel;
+    }
+}
+```
+
+Resolution rules (`UnitOfWorkHelper.IsUnitOfWorkMethod`):
+
+1. Method-level `[UnitOfWork]` wins, including `IsDisabled = true` which explicitly opts out.
+2. Class-level `[UnitOfWork]` is next.
+3. Otherwise: types implementing `IUnitOfWorkEnabled` are wrapped automatically.
+
+`AbpUnitOfWorkOptions` is the runtime carrier and `IAbpUnitOfWorkOptions` is the read-only view exposed on `IUnitOfWork.Options` — see `AbpUnitOfWorkOptions.cs`. Defaults (`AbpUnitOfWorkDefaultOptions.cs`) supply the framework-wide fallbacks.
+
+## Invariants
+
+- **Single completion** — `PreventMultipleComplete()` throws if `IsCompleted || _isCompleting`. A child UoW never reaches this; the outer one is the only completer.
+- **No commit without save** — `CompleteAsync` always runs the save loop before `CommitTransactionsAsync`. Distributed events are guaranteed to be in the outbox before the transaction commits.
+- **AsyncLocal isolation** — each request / background job has its own ambient UoW chain. Concurrent requests cannot see each other's UoW.
+- **`OnCompleted` runs only on success** — these handlers are perfect for cache invalidation or telemetry that must not run on rollback.
+
+## Cross-links
+
+<CardGroup cols={2}>
+  <Card title="Data Overview" href="/framework/data/overview">Connection-string resolution that backs database APIs.</Card>
+  <Card title="Entity Framework Core" href="/framework/data/entity-framework-core">How `AbpDbContext.SaveChangesAsync` integrates with this UoW.</Card>
+  <Card title="MongoDB" href="/framework/data/mongodb">Mongo session as `ITransactionApi`.</Card>
+  <Card title="Distributed Events" href="/framework/event-bus/distributed-event-bus">Outbox publishing driven by `IUnitOfWorkEventPublisher`.</Card>
+</CardGroup>

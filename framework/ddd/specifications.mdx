@@ -1,0 +1,118 @@
+---
+title: "Specifications — Reusable Predicates over Entities"
+sidebarTitle: "Specifications"
+description: "ABP's Specification<T> implementation, composable And/Or/Not/AndNot operators, expression conversion and integration with IQueryable repositories."
+---
+
+ABP ships a minimal but complete implementation of the Specification pattern in `framework/src/Volo.Abp.Specifications/Volo/Abp/Specifications/`. A specification encapsulates a boolean predicate over a domain type so it can be named, tested in isolation, and composed without rewriting the underlying LINQ expression. Specifications are equally usable against an in-memory list (`IsSatisfiedBy`) and an `IQueryable` data source (via the implicit conversion to `Expression<Func<T, bool>>`).
+
+## Source Inventory
+
+| File | Role |
+| --- | --- |
+| `ISpecification.cs` | Two-method contract: `IsSatisfiedBy(obj)`, `ToExpression()`. |
+| `Specification.cs` | Abstract base with implicit conversion to `Expression<Func<T, bool>>`. |
+| `ICompositeSpecification.cs` | Marks specs that have `Left` + `Right` operands. |
+| `CompositeSpecification.cs` | Base for binary combinators. |
+| `AndSpecification.cs` | `Left && Right`. |
+| `OrSpecification.cs` | `Left \|\| Right`. |
+| `NotSpecification.cs` | `!inner`. |
+| `AndNotSpecification.cs` | `Left && !Right`. |
+| `AnySpecification.cs` | Always satisfied — useful as identity in folds. |
+| `NoneSpecification.cs` | Never satisfied — useful as identity in folds. |
+| `ExpressionSpecification.cs` | Wraps an existing `Expression<Func<T, bool>>` as a spec. |
+| `SpecificationExtensions.cs` | Fluent `.And`, `.Or`, `.Not`, `.AndNot` composers. |
+| `ISpecificationParser.cs` | Pluggable hook for textual-DSL → spec parsing (not implemented by default). |
+| `ExpressionFuncExtender.cs`, `ParameterRebinder.cs` | Internal helpers that merge `Expression<Func<T, bool>>` operands while preserving a single parameter. |
+| `AbpSpecificationsModule.cs` | Empty `AbpModule` — the package only contributes types. |
+
+## Core Contract
+
+```csharp
+// framework/src/Volo.Abp.Specifications/Volo/Abp/Specifications/ISpecification.cs
+public interface ISpecification<T>
+{
+    bool IsSatisfiedBy(T obj);
+    Expression<Func<T, bool>> ToExpression();
+}
+
+// framework/src/Volo.Abp.Specifications/Volo/Abp/Specifications/Specification.cs
+public abstract class Specification<T> : ISpecification<T>
+{
+    public virtual bool IsSatisfiedBy(T obj) => ToExpression().Compile()(obj);
+    public abstract Expression<Func<T, bool>> ToExpression();
+
+    public static implicit operator Expression<Func<T, bool>>(Specification<T> specification)
+        => specification.ToExpression();
+}
+```
+
+Two important design choices:
+
+1. **Expression first, predicate second.** `IsSatisfiedBy` compiles the expression on every call (cheap because expressions cache internally). For hot paths you should hold a compiled delegate.
+2. **Implicit operator** to `Expression<Func<T, bool>>` makes specs slot directly into LINQ: `repo.Where(spec)` rather than `repo.Where(spec.ToExpression())`.
+
+## Combinators
+
+```csharp
+// framework/src/Volo.Abp.Specifications/Volo/Abp/Specifications/AndSpecification.cs
+public class AndSpecification<T> : CompositeSpecification<T>
+{
+    public AndSpecification(ISpecification<T> left, ISpecification<T> right) : base(left, right) { }
+    public override Expression<Func<T, bool>> ToExpression() =>
+        Left.ToExpression().And(Right.ToExpression());
+}
+```
+
+`OrSpecification`, `NotSpecification`, `AndNotSpecification` follow the same shape. The `.And` / `.Or` / `.Not` extensions on `Expression<Func<T, bool>>` (in `ExpressionFuncExtender.cs`) use `ParameterRebinder.cs` to ensure both operands reference the *same* lambda parameter — this is what allows ABP's combined specs to translate cleanly into a single SQL query through EF Core.
+
+## Sample Use
+
+```csharp
+public class ActiveOrderSpec : Specification<Order>
+{
+    public override Expression<Func<Order, bool>> ToExpression()
+        => o => o.Status == OrderStatus.Active && !o.IsArchived;
+}
+
+public class HighValueSpec : Specification<Order>
+{
+    private readonly decimal _threshold;
+    public HighValueSpec(decimal threshold) => _threshold = threshold;
+    public override Expression<Func<Order, bool>> ToExpression()
+        => o => o.TotalAmount >= _threshold;
+}
+
+// composition
+var spec = new ActiveOrderSpec().And(new HighValueSpec(10_000m));
+var queryable = await orderRepo.GetQueryableAsync();
+var hits      = await orderRepo.AsyncExecuter.ToListAsync(queryable.Where(spec));
+```
+
+`spec` is implicitly converted to an expression — EF Core sees one combined `WHERE` clause. The same spec is testable without a database:
+
+```csharp
+Assert.True(spec.IsSatisfiedBy(new Order { Status = OrderStatus.Active, TotalAmount = 12000m }));
+```
+
+## Wrapping Ad-Hoc Expressions
+
+`ExpressionSpecification<T>` lifts an existing lambda into the spec algebra without forcing you to derive a new class:
+
+```csharp
+var pendingApproval = new ExpressionSpecification<Order>(o => o.NeedsApproval);
+var spec = pendingApproval.AndNot(new HighValueSpec(100_000m));
+```
+
+This is the simplest entry point when you are migrating expression-based code to a spec-first style.
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Repositories" icon="database" href="/framework/ddd/repositories">
+    Pass specs straight into `Where` on the queryable.
+  </Card>
+  <Card title="Entities & Aggregates" icon="boxes-stacked" href="/framework/ddd/entities-and-aggregates">
+    The shapes specs are usually written against.
+  </Card>
+</CardGroup>

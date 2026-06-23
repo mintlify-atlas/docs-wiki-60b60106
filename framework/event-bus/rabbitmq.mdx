@@ -1,0 +1,98 @@
+---
+title: "RabbitMQ Distributed Event Bus: Exchanges, Queues, Pools"
+sidebarTitle: "RabbitMQ"
+description: "Wire IDistributedEventBus to RabbitMQ via RabbitMqDistributedEventBus, AbpRabbitMqEventBusOptions, ConnectionPool, and consumer factory."
+---
+
+`Volo.Abp.EventBus.RabbitMQ` plugs `IDistributedEventBus` into RabbitMQ by replacing the default registration with `RabbitMqDistributedEventBus`. The module depends on `Volo.Abp.RabbitMQ`, which provides pooled `IConnection` and `IChannel` access plus a consumer factory.
+
+## RabbitMqDistributedEventBus
+
+`RabbitMqDistributedEventBus` (`framework/src/Volo.Abp.EventBus.RabbitMQ/Volo/Abp/EventBus/RabbitMq/RabbitMqDistributedEventBus.cs`) is registered with `[Dependency(ReplaceServices = true)]` and `[ExposeServices(typeof(IDistributedEventBus), typeof(RabbitMqDistributedEventBus), typeof(IRabbitMqDistributedEventBus))]`. Its constructor pulls:
+
+- `IConnectionPool` — shared physical connections.
+- `IRabbitMqMessageConsumerFactory` — produces a `IRabbitMqMessageConsumer` per subscription.
+- `IRabbitMqSerializer` — defaults to `Utf8JsonRabbitMqSerializer`.
+- `AbpRabbitMqEventBusOptions` — exchange/queue topology.
+
+On `Initialize()` the bus declares an exchange and a queue, binds them, and starts a consumer that routes incoming messages to handler factories.
+
+## AbpRabbitMqEventBusOptions
+
+```csharp
+public class AbpRabbitMqEventBusOptions
+{
+    public const string DefaultExchangeType = RabbitMqConsts.ExchangeTypes.Direct;
+    public string? ConnectionName { get; set; }
+    public string ClientName { get; set; } = default!;
+    public string ExchangeName { get; set; } = default!;
+    public string? ExchangeType { get; set; }       // defaults to "direct"
+    public ushort? PrefetchCount { get; set; }
+    public IDictionary<string, object?> QueueArguments { get; set; } = new Dictionary<string, object?>();
+    public IDictionary<string, object?> ExchangeArguments { get; set; } = new Dictionary<string, object?>();
+}
+```
+
+`ClientName` becomes the default queue name when none is specified, and `ExchangeName` is the topic that publishes fan out to. `PrefetchCount` translates to RabbitMQ's `basic.qos`, controlling how many unacked messages a consumer may hold.
+
+Configure in your module:
+
+```csharp
+Configure<AbpRabbitMqEventBusOptions>(options =>
+{
+    options.ClientName = "MyService";
+    options.ExchangeName = "AbpEvents";
+    options.PrefetchCount = 50;
+});
+```
+
+## Connection pool
+
+`ConnectionPool` (`framework/src/Volo.Abp.RabbitMQ/Volo/Abp/RabbitMQ/ConnectionPool.cs`) is `ISingletonDependency`. It keeps one `IConnection` per named connection in a `ConcurrentDictionary`, serialised by a `SemaphoreSlim`. Reconnection logic handles closed connections by re-creating them transparently, and supports semicolon-separated host lists for cluster connections:
+
+```csharp
+return hostnames.Length == 1
+    ? await connectionFactory.CreateConnectionAsync()
+    : await connectionFactory.CreateConnectionAsync(hostnames);
+```
+
+`ChannelPool` layers on top to lease pooled `IChannel` instances per connection.
+
+## Connections
+
+`AbpRabbitMqOptions.Connections` is a `RabbitMqConnections` dictionary of `ConnectionFactory` entries. Configure them through the standard options pattern:
+
+```csharp
+Configure<AbpRabbitMqOptions>(options =>
+{
+    options.Connections.Default.HostName = "rabbitmq";
+    options.Connections.Default.UserName = "guest";
+    options.Connections.Default.Password = "guest";
+});
+```
+
+## Message handler factory
+
+`RabbitMqMessageConsumerFactory` (`Volo.Abp.RabbitMQ/Volo/Abp/RabbitMQ/RabbitMqMessageConsumerFactory.cs`) creates and initializes a `RabbitMqMessageConsumer` for each exchange/queue/connection triple. Each consumer owns its own channel and re-declares topology on connection loss. `RabbitMqDistributedEventBus` calls into it on `Initialize()`:
+
+```csharp
+Consumer = MessageConsumerFactory.Create(
+    new ExchangeDeclareConfiguration(...),
+    new QueueDeclareConfiguration(...),
+    AbpRabbitMqEventBusOptions.ConnectionName);
+Consumer.OnMessageReceived(ProcessEventAsync);
+```
+
+`ProcessEventAsync` reads the `messageId` and `type` headers, deserialises the body with `IRabbitMqSerializer`, dedupes through the inbox when configured, and dispatches to handlers.
+
+## Module wiring
+
+Add `[DependsOn(typeof(AbpEventBusRabbitMqModule))]` to your module class. The module's `OnApplicationInitialization` calls `eventBus.Initialize()` so topology is created at startup.
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Distributed Bus" href="/framework/event-bus/distributed-event-bus" icon="network-wired" />
+  <Card title="Kafka" href="/framework/event-bus/kafka" icon="stream" />
+  <Card title="Background Jobs (RabbitMQ)" href="/framework/background/rabbitmq" icon="rabbit" />
+</CardGroup>

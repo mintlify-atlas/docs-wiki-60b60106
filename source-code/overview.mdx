@@ -1,0 +1,97 @@
+---
+title: "Source-Code Packages: Modules Distributed as Raw Source"
+sidebarTitle: "Overview"
+description: "Reference for every *.SourceCode project under source-code/ and studio/source-codes/ — modules shipped as a ZIP'd source tree instead of compiled NuGet binaries."
+---
+
+Most ABP modules ship as compiled NuGet packages — you add the `Volo.Abp.Identity.Web` package and reference the binary. The repository also publishes a parallel **source-code** distribution of the same modules, where the module's source tree is shipped as a ZIP inside a NuGet content package. Two folders carry these packages:
+
+- `source-code/` — the canonical set used by `abp add-module --with-source-code` for the open-source ABP modules.
+- `studio/source-codes/` — the identical set mirrored for ABP Studio's source-code import flow.
+
+## How a SourceCode package is built
+
+Each project is a tiny `Microsoft.NET.Sdk` library that packs a single `*.zip` as `content`:
+
+```xml source-code/Volo.Abp.Identity.SourceCode/Volo.Abp.Identity.SourceCode.csproj
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\configureawait.props" />
+  <Import Project="..\..\common.props" />
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Remove="Volo.Abp.Identity.SourceCode.zip" />
+    <Content Include="Volo.Abp.Identity.SourceCode.zip">
+      <Pack>true</Pack>
+      <PackagePath>content\</PackagePath>
+    </Content>
+  </ItemGroup>
+</Project>
+```
+
+The ZIP next to it (e.g. `Volo.Abp.Identity.SourceCode.zip`) holds the full source tree of that module — `*.Domain`, `*.Application`, `*.HttpApi`, `*.Web`, etc. When a user runs `abp add-module Volo.Abp.Identity --with-source-code`, the CLI downloads this NuGet, extracts the embedded ZIP into the user's solution, and replaces the `PackageReference`s with `ProjectReference`s — implemented by `SolutionModuleAdder` + `SourceCodeDownloadService` (see [Project modification](/tooling/project-modification)).
+
+`SourceCodes.slnx` aggregates every `*.SourceCode.csproj` so the build pipeline can produce all of them in one `dotnet pack`.
+
+## Complete catalogue
+
+| SourceCode project | Module it represents | What it provides |
+| --- | --- | --- |
+| `Volo.Abp.Account.SourceCode` | `Volo.Abp.Account` | Login, register, profile, forgot-password pages and the account application services. |
+| `Volo.Abp.AuditLogging.SourceCode` | `Volo.Abp.AuditLogging` | Persistent audit-log entities, repositories, and EF Core/MongoDB stores. |
+| `Volo.Abp.BackgroundJobs.SourceCode` | `Volo.Abp.BackgroundJobs` | Database-backed background-job manager and store. |
+| `Volo.Abp.BasicTheme.SourceCode` | `Volo.Abp.BasicTheme` | Bootstrap-based MVC theme (layout, menus, components). |
+| `Volo.Abp.BlobStoring.Database.SourceCode` | `Volo.Abp.BlobStoring.Database` | Database-backed BLOB store provider. |
+| `Volo.Abp.FeatureManagement.SourceCode` | `Volo.Abp.FeatureManagement` | Feature definitions, value providers, management UI. |
+| `Volo.Abp.Identity.SourceCode` | `Volo.Abp.Identity` | User / role / claim entities + management UI on top of ASP.NET Core Identity. |
+| `Volo.Abp.IdentityServer.SourceCode` | `Volo.Abp.IdentityServer` | Duende IdentityServer integration (clients, scopes, persisted grants). |
+| `Volo.Abp.OpenIddict.SourceCode` | `Volo.Abp.OpenIddict` | OpenIddict-based authority (the modern replacement for the IdentityServer module). |
+| `Volo.Abp.PermissionManagement.SourceCode` | `Volo.Abp.PermissionManagement` | Permission definitions, value providers, grant store. |
+| `Volo.Abp.SettingManagement.SourceCode` | `Volo.Abp.SettingManagement` | Setting definitions, value providers, management UI. |
+| `Volo.Abp.TenantManagement.SourceCode` | `Volo.Abp.TenantManagement` | Multi-tenant management (tenant CRUD, connection-string-per-tenant). |
+| `Volo.Abp.Users.SourceCode` | `Volo.Abp.Users` | Shared user-abstractions and `ICurrentUser` plumbing. |
+| `Volo.Abp.VirtualFileExplorer.SourceCode` | `Volo.Abp.VirtualFileExplorer` | UI for browsing the virtual file system at runtime. |
+| `Volo.Blogging.SourceCode` | `Volo.Blogging` | Sample blogging module bundled with ABP. |
+| `Volo.ClientSimulation.SourceCode` | `Volo.ClientSimulation` | Load-test client simulation harness. |
+| `Volo.CmsKit.SourceCode` | `Volo.CmsKit` | Lightweight CMS building blocks (blog posts, pages, comments, tags). |
+| `Volo.Docs.SourceCode` | `Volo.Docs` | Self-hosted documentation site module (powers https://abp.io/docs). |
+
+`SourceCodes.slnx`:
+
+```text source-code/SourceCodes.slnx (every entry)
+<Project Path="Volo.Abp.Account.SourceCode/Volo.Abp.Account.SourceCode.csproj" />
+<Project Path="Volo.Abp.AuditLogging.SourceCode/Volo.Abp.AuditLogging.SourceCode.csproj" />
+<Project Path="Volo.Abp.BackgroundJobs.SourceCode/Volo.Abp.BackgroundJobs.SourceCode.csproj" />
+<Project Path="Volo.Abp.BasicTheme.SourceCode/Volo.Abp.BasicTheme.SourceCode.csproj" />
+<Project Path="Volo.Abp.BlobStoring.Database.SourceCode/..." />
+<Project Path="Volo.Abp.FeatureManagement.SourceCode/..." />
+<Project Path="Volo.Abp.Identity.SourceCode/..." />
+<Project Path="Volo.Abp.IdentityServer.SourceCode/..." />
+<Project Path="Volo.Abp.OpenIddict.SourceCode/..." />
+<Project Path="Volo.Abp.PermissionManagement.SourceCode/..." />
+<Project Path="Volo.Abp.SettingManagement.SourceCode/..." />
+<Project Path="Volo.Abp.TenantManagement.SourceCode/..." />
+<Project Path="Volo.Abp.Users.SourceCode/..." />
+<Project Path="Volo.Abp.VirtualFileExplorer.SourceCode/..." />
+<Project Path="Volo.Blogging.SourceCode/..." />
+<Project Path="Volo.ClientSimulation.SourceCode/..." />
+<Project Path="Volo.CmsKit.SourceCode/..." />
+<Project Path="Volo.Docs.SourceCode/..." />
+```
+
+`studio/source-codes/` mirrors the same eighteen project folders one-for-one — every entry above exists at both `source-code/<name>` and `studio/source-codes/<name>`. The Studio copy is what ABP Studio reads when offering "Import as source code" from the module management UI.
+
+## Why this exists
+
+Source-code distribution is heavily used in two scenarios:
+
+1. **Customisation.** The team wants to fork an official module's UI or business logic without losing the ability to merge upstream changes. Pulling the source into their solution makes the customisation a normal C# edit.
+2. **Commercial / paid modules.** ABP Commercial modules typically ship in both binary and source-code form so license holders can audit or extend them. The `source-code/` folder in this repository is the open-source-only subset; commercial modules follow the same packaging pattern in the abpframework/abp-commercial repository.
+
+`abp get-source <module-name>` (`GetSourceCommand.cs`) is the direct way to download just the source tree without adding the module to a solution. `abp add-module <module-name> --with-source-code` is the more common path — it downloads the same package, extracts it, and re-wires the solution to use the local projects via `NugetPackageToLocalReferenceConverter`.
+
+<CardGroup cols={2}>
+  <Card title="Project modification" href="/tooling/project-modification">How `--with-source-code` plugs these packages into a solution.</Card>
+  <Card title="CLI commands" href="/tooling/cli-commands">`abp get-source` and `abp add-module` flags.</Card>
+</CardGroup>

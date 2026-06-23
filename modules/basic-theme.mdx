@@ -1,0 +1,49 @@
+---
+title: "Basic Theme Module: Bootstrap-Only Default UI for ABP MVC"
+sidebarTitle: "Basic Theme"
+description: "ABP's plain Bootstrap theme — layouts, bundles and toolbar contributors that ship as the default look for MVC and Blazor applications."
+---
+
+The Basic theme is ABP's no-frills default skin. It registers an `ITheme` implementation, ships Bootstrap-only CSS/JS bundles, and provides Razor layouts that other modules render into via the [Theme abstraction](/framework/ui-mvc/themes). It is the fallback used by every starter template when no commercial theme (LeptonX, etc.) is referenced. Source lives under `/home/daytona/repos/abpframework/abp/modules/basic-theme/src/`.
+
+## Packages
+
+The module ships as a fan-out of UI flavors, all wiring the same look-and-feel:
+
+| Package | Purpose |
+| --- | --- |
+| `Volo.Abp.AspNetCore.Mvc.UI.Theme.Basic` | MVC / Razor Pages theme, layouts, bundles |
+| `Volo.Abp.AspNetCore.Components.Web.BasicTheme` | Blazor Server / WASM shared UI components |
+| `Volo.Abp.AspNetCore.Components.Server.BasicTheme` | Blazor Server entry point |
+| `Volo.Abp.AspNetCore.Components.WebAssembly.BasicTheme` | Blazor WebAssembly entry point + `Bundling` companion |
+| `Volo.Abp.AspNetCore.Components.*.MudBlazorBasicTheme` | MudBlazor-flavored variant for teams using MudBlazor |
+| `Volo.Abp.BasicTheme.Installer` / `Volo.Abp.AspNetCore.Mvc.UI.Theme.Basic.Installer` | NuGet installers wired by the ABP CLI |
+
+## Theme registration
+
+`BasicTheme.cs` (`modules/basic-theme/src/Volo.Abp.AspNetCore.Mvc.UI.Theme.Basic/BasicTheme.cs`) maps the three standard layout names — `Application`, `Account`, `Empty` — to `.cshtml` files under `Themes/Basic/Layouts/`:
+
+```csharp
+[ThemeName(Name)]
+public class BasicTheme : ITheme, ITransientDependency
+{
+    public const string Name = "Basic";
+
+    public virtual string GetLayout(string name, bool fallbackToDefault = true)
+    {
+        switch (name)
+        {
+            case StandardLayouts.Application: return "~/Themes/Basic/Layouts/Application.cshtml";
+            case StandardLayouts.Account:     return "~/Themes/Basic/Layouts/Account.cshtml";
+            case StandardLayouts.Empty:       return "~/Themes/Basic/Layouts/Empty.cshtml";
+            default: return fallbackToDefault ? "~/Themes/Basic/Layouts/Application.cshtml" : null;
+        }
+    }
+}
+```
+
+`AbpAspNetCoreMvcUiBasicThemeModule.cs` registers the theme into `AbpThemingOptions.Themes`, sets it as `DefaultThemeName` when none is configured, embeds the assembly into the virtual file system, and adds `BasicThemeMainTopToolbarContributor` so the top toolbar slot is populated.
+
+Bundles live in `Bundling/`: `BasicThemeBundles.cs` declares the named CSS/JS bundles and `BasicThemeGlobalStyleContributor` / `BasicThemeGlobalScriptContributor` chain into the [shared theming pipeline](/framework/ui-mvc/themes).
+
+See also: [/framework/ui-mvc/themes](/framework/ui-mvc/themes) and [/modules/virtual-file-explorer](/modules/virtual-file-explorer) for inspecting the embedded Razor/JS assets.

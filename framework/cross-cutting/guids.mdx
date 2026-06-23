@@ -1,0 +1,70 @@
+---
+title: "GUID generation with sequential identifiers"
+sidebarTitle: "Guids"
+description: "IGuidGenerator, SequentialGuidGenerator with three layout strategies, and the simple Guid.NewGuid fallback for tests."
+---
+
+ABP entities prefer sequential GUIDs over `Guid.NewGuid()` because randomly-distributed GUIDs cause heavy index-page splits in SQL Server and PostgreSQL. `Volo.Abp.Guids` exposes one interface and two implementations: `SequentialGuidGenerator` for production (the framework default) and `SimpleGuidGenerator` for tests that want deterministic randomness without a sequence.
+
+## `IGuidGenerator`
+
+```csharp
+// framework/src/Volo.Abp.Guids/Volo/Abp/Guids/IGuidGenerator.cs
+public interface IGuidGenerator
+{
+    Guid Create();
+}
+```
+
+`AbpDbContext` resolves it lazily via `IAbpLazyServiceProvider`, falling back to `SimpleGuidGenerator.Instance` when no implementation is registered:
+
+```csharp
+public IGuidGenerator GuidGenerator =>
+    LazyServiceProvider.LazyGetService<IGuidGenerator>(SimpleGuidGenerator.Instance);
+```
+
+This is used inside `AbpDbContext.TrySetGuidId` when an `IEntity<Guid>` is added without an explicit ID — the generator fills it before `SaveChangesAsync`.
+
+## `SequentialGuidGenerator`
+
+`SequentialGuidGenerator` (`SequentialGuidGenerator.cs`) packs a 6-byte timestamp (`DateTime.UtcNow.Ticks / TimeSpan.TicksPerMillisecond` since `DateTime.MinValue`) into 10 bytes of cryptographically-strong random data, producing GUIDs that sort by creation time:
+
+```csharp
+public Guid Create() => Create(Options.GetDefaultSequentialGuidType());
+```
+
+It's registered as `ITransientDependency`, so the default DI binding (`AbpGuidsModule`) wires it once `Volo.Abp.Guids` is referenced. A single `RandomNumberGenerator.Create()` instance is reused for the lifetime of the process.
+
+## `SequentialGuidType`
+
+The sequential portion can live in three places, controlled by `AbpSequentialGuidGeneratorOptions.DefaultSequentialGuidType` (defaults to `SequentialAtEnd`):
+
+| Value | Sort order | Use with |
+| --- | --- | --- |
+| `SequentialAsString` | Sorted by string representation (`Guid.ToString()`). | MySQL, PostgreSQL. |
+| `SequentialAsBinary` | Sorted by `Guid.ToByteArray()`. | Oracle. |
+| `SequentialAtEnd` | Sequential portion is in the trailing Data4 block. | SQL Server (`uniqueidentifier` clustering). |
+
+Source: `framework/src/Volo.Abp.Guids/Volo/Abp/Guids/SequentialGuidType.cs`. Configure at startup:
+
+```csharp
+Configure<AbpSequentialGuidGeneratorOptions>(o =>
+    o.DefaultSequentialGuidType = SequentialGuidType.SequentialAsString);   // PostgreSQL
+```
+
+## `SimpleGuidGenerator`
+
+`SimpleGuidGenerator` (`SimpleGuidGenerator.cs`) is a singleton helper that just calls `Guid.NewGuid()`. It's used as the lazy fallback (`SimpleGuidGenerator.Instance`) so code that runs without the generator registered — design-time EF tooling, unit tests not bootstrapping the full module — still gets non-null IDs.
+
+## Practical recipes
+
+- **Pick the right strategy per provider.** Configure `SequentialAtEnd` on SQL Server, `SequentialAsString` on Postgres/MySQL, and `SequentialAsBinary` on Oracle to keep clustered indexes happy.
+- **Inject `IGuidGenerator`** in domain services that need to create entities by hand — never call `Guid.NewGuid()` directly so tests can swap the generator.
+- **Deterministic tests.** Bind a fake `IGuidGenerator` returning a known sequence to assert on entity IDs.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="EF Core save pipeline" href="/framework/data/entity-framework-core" />
+  <Card title="Timing" href="/framework/cross-cutting/timing" />
+</CardGroup>

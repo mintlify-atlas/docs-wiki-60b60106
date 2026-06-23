@@ -1,0 +1,88 @@
+---
+title: "Local Event Bus: In-Process Pub/Sub for ABP Modules"
+sidebarTitle: "Local Event Bus"
+description: "Use ILocalEventBus to fan out in-process domain events with handler discovery, AbpLocalEventBusOptions, and EventName routing."
+---
+
+`ILocalEventBus` is the in-process publish/subscribe surface for ABP. It runs in the same process as the publisher, dispatches handlers synchronously inside the unit-of-work commit window, and is registered as a `ISingletonDependency` so subscriptions live for the lifetime of the host.
+
+## Implementation
+
+`LocalEventBus` (`framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Local/LocalEventBus.cs`) extends `EventBusBase` and maintains three concurrent dictionaries: `HandlerFactories` keyed by `Type`, `EventTypes` keyed by event name, and `DynamicEventHandlerFactories` for string-named subscriptions. The constructor seeds itself from `AbpLocalEventBusOptions.Handlers`, calling `SubscribeHandlers` to register each `ILocalEventHandler<>` type discovered by the module:
+
+```csharp
+public LocalEventBus(IOptions<AbpLocalEventBusOptions> options, ...)
+{
+    HandlerFactories = new ConcurrentDictionary<Type, List<IEventHandlerFactory>>();
+    EventTypes = new ConcurrentDictionary<string, Type>();
+    DynamicEventHandlerFactories = new ConcurrentDictionary<string, List<IEventHandlerFactory>>();
+    SubscribeHandlers(Options.Handlers);
+}
+```
+
+## Options
+
+`AbpLocalEventBusOptions` exposes a single `ITypeList<IEventHandler> Handlers` collection. `AbpEventBusModule.PreConfigureServices` auto-populates it by hooking `services.OnRegistered` and inspecting each registration against `ILocalEventHandler<>`. You rarely need to touch this directly — implementing the handler interface is enough.
+
+```csharp
+public class AbpLocalEventBusOptions
+{
+    public ITypeList<IEventHandler> Handlers { get; } = new TypeList<IEventHandler>();
+}
+```
+
+## Publishing
+
+Three overloads come from `IEventBus`:
+
+```csharp
+await LocalEventBus.PublishAsync(new OrderPlacedEto { OrderId = id });
+await LocalEventBus.PublishAsync(typeof(OrderPlacedEto), data);
+await LocalEventBus.PublishAsync("order.placed", data); // dynamic
+```
+
+When `onUnitOfWorkComplete` is `true` (default) and a UoW is active, `EventBusBase.PublishAsync` records a `UnitOfWorkEventRecord` and defers delivery to the commit phase via `UnitOfWorkEventPublisher.PublishLocalEventsAsync`. Pass `false` to fire immediately.
+
+## Subscribing
+
+`LocalEventBus.Subscribe` returns an `IDisposable`; calling `Dispose()` removes the handler. The bus exposes generic, type-based, instance-based, and string-name overloads:
+
+```csharp
+var disposable = LocalEventBus.Subscribe<OrderPlacedEto>(async data => { /* ... */ });
+LocalEventBus.Subscribe<OrderPlacedEto, OrderHandler>();
+LocalEventBus.Subscribe(typeof(OrderPlacedEto), new OrderHandler());
+```
+
+For most applications you simply declare a class:
+
+```csharp
+public class OrderHandler : ILocalEventHandler<OrderPlacedEto>, ITransientDependency
+{
+    public Task HandleEventAsync(OrderPlacedEto eventData) { ... }
+}
+```
+
+The handler is resolved per invocation through `IocEventHandlerFactory`, which opens an `IServiceScope` so injected dependencies (e.g. repositories, `ICurrentUser`) are scoped correctly.
+
+## EventName attribute
+
+By default the routing key for an event is its CLR full name. `EventNameAttribute` (`Volo.Abp.EventBus.Abstractions/Volo/Abp/EventBus/EventNameAttribute.cs`) lets you override it for dynamic publishes and broker contracts:
+
+```csharp
+[EventName("acme.shop.order.placed")]
+public class OrderPlacedEto { public Guid OrderId { get; set; } }
+```
+
+`EventNameAttribute.GetNameOrDefault(typeof(OrderPlacedEto))` returns the attribute value when present, otherwise the `Type.FullName`. The same lookup is used by both buses, so a single attribute drives in-process *and* broker naming consistently.
+
+## Inline actions
+
+Anonymous subscriptions use `ActionEventHandler<T>` (an `ILocalEventHandler<T>` adapter for a `Func<T, Task>`). Unsubscribe by calling `Dispose()` on the returned token or by passing the same delegate to `Unsubscribe`.
+
+## Related pages
+
+<CardGroup cols={3}>
+  <Card title="Overview" href="/framework/event-bus/overview" icon="diagram-project" />
+  <Card title="Distributed Bus" href="/framework/event-bus/distributed-event-bus" icon="network-wired" />
+  <Card title="Unit of Work" href="/framework/data/unit-of-work" icon="database" />
+</CardGroup>

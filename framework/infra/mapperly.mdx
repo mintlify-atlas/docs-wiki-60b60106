@@ -1,0 +1,52 @@
+---
+title: "Mapperly Source-Generated Object Mappers"
+sidebarTitle: "Mapperly"
+description: "Compile-time mappers via Riok.Mapperly registered as IObjectMapper, with hooks for ExtraProperties and reverse mapping."
+---
+
+`Volo.Abp.Mapperly` registers source-generated mappers built with [Riok.Mapperly](https://mapperly.riok.app/) as the active `IObjectMapper` provider. Unlike AutoMapper there is no runtime configuration tree — every mapper is a concrete class generated at build time.
+
+## Module
+
+```csharp framework/src/Volo.Abp.Mapperly/Volo/Abp/Mapperly/AbpMapperlyModule.cs
+[DependsOn(typeof(AbpObjectMappingModule), typeof(AbpObjectExtendingModule), typeof(AbpAuditingModule))]
+public class AbpMapperlyModule : AbpModule
+{
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.AddConventionalRegistrar(new AbpMapperlyConventionalRegistrar());
+    }
+
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.AddMapperlyObjectMapper();
+    }
+}
+```
+
+The conventional registrar discovers mapper classes by interface (`IAbpMapperlyMapper<TSource, TDestination>`), and `AddMapperlyObjectMapper` registers `MapperlyAutoObjectMappingProvider` as `IAutoObjectMappingProvider`.
+
+## Authoring a mapper
+
+You inherit from `MapperBase<TSource, TDestination>` (one-way) or `TwoWayMapperBase<TSource, TDestination>` (two-way) and let Mapperly generate the body:
+
+```csharp framework/src/Volo.Abp.Mapperly/Volo/Abp/Mapperly/MapperBase.cs
+public abstract class MapperBase<TSource, TDestination>
+    : IAbpMapperlyMapper<TSource, TDestination>, ITransientDependency
+{
+    public abstract TDestination Map(TSource source);
+    public abstract void Map(TSource source, TDestination destination);
+    public virtual void BeforeMap(TSource source) {}
+    public virtual void AfterMap(TSource source, TDestination destination) {}
+}
+```
+
+## Runtime dispatch
+
+`MapperlyAutoObjectMappingProvider.Map<TSource, TDestination>(source)` resolves either `IAbpMapperlyMapper<TSource, TDestination>` or the reverse mapper, runs `BeforeMap`, performs the mapping, optionally copies `ExtraProperties` (when `[MapExtraProperties]` is set on the mapper class), and runs `AfterMap`. If no mapper matches it throws an `AbpException` with a "How to fix" message describing the missing mapper class (see `framework/src/Volo.Abp.Mapperly/Volo/Abp/Mapperly/MapperlyAutoObjectMappingProvider.cs`).
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="AutoMapper" icon="arrows-left-right" href="/framework/infra/auto-mapper" />
+</CardGroup>

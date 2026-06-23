@@ -1,0 +1,52 @@
+---
+title: "FluentValidation Bridged Into ABP Object Validation"
+sidebarTitle: "FluentValidation"
+description: "Run FluentValidation validators alongside DataAnnotations through an IObjectValidationContributor that surfaces errors uniformly."
+---
+
+`Volo.Abp.FluentValidation` lets you author validators with the [FluentValidation](https://docs.fluentvalidation.net/) DSL while ABP's `IObjectValidator` continues to coordinate the overall pipeline. Validators surface their errors through the same `ValidationResult` collection as DataAnnotations.
+
+## Module
+
+```csharp framework/src/Volo.Abp.FluentValidation/Volo/Abp/FluentValidation/AbpFluentValidationModule.cs
+[DependsOn(typeof(AbpValidationModule))]
+public class AbpFluentValidationModule : AbpModule
+{
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.AddConventionalRegistrar(new AbpFluentValidationConventionalRegistrar());
+    }
+}
+```
+
+`AbpFluentValidationConventionalRegistrar` registers every concrete `AbstractValidator<T>` it finds in scanned assemblies with the correct generic interface (`IValidator<T>`).
+
+## Object-validation contributor
+
+`FluentObjectValidationContributor` is the bridge — it implements `IObjectValidationContributor` so the framework's `IObjectValidator` calls it for every object validated:
+
+```csharp framework/src/Volo.Abp.FluentValidation/Volo/Abp/FluentValidation/FluentObjectValidationContributor.cs
+public virtual async Task AddErrorsAsync(ObjectValidationContext context)
+{
+    var serviceType = typeof(IValidator<>).MakeGenericType(context.ValidatingObject.GetType());
+    var validator = _serviceProvider.GetService(serviceType) as IValidator;
+    if (validator == null) return;
+
+    var result = await validator.ValidateAsync(...);
+
+    if (!result.IsValid)
+    {
+        context.Errors.AddRange(
+            result.Errors.Select(
+                error => new ValidationResult(error.ErrorMessage, new[] { error.PropertyName })));
+    }
+}
+```
+
+No matching `IValidator<T>` means the contributor silently returns — DataAnnotations validators still run. If both exist their errors are merged.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="AutoMapper" icon="arrows-left-right" href="/framework/infra/auto-mapper" />
+</CardGroup>

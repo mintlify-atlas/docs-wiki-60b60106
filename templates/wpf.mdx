@@ -1,0 +1,32 @@
+---
+title: "WPF Template: Windows Desktop Client With ABP Autofac"
+sidebarTitle: "WPF"
+description: "The Windows-only WPF starter from `abp new -t wpf` — a single project hosting AbpApplicationFactory plus a main window wired to ABP dependency injection."
+---
+
+`templates/wpf/` is the Windows desktop starter scaffolded by `abp new <name> -t wpf`. It produces a one-project WPF application that bootstraps an `AbpApplication` so the rest of the UI can use ABP modules and DI exactly like any other ABP host.
+
+## Layout
+
+```text
+templates/wpf/
+├── MyCompanyName.MyProjectName.slnx
+├── common.props
+└── src/
+    └── MyCompanyName.MyProjectName/
+        ├── App.xaml(.cs)             # AbpApplicationFactory.Create lives here
+        ├── AssemblyInfo.cs
+        ├── HelloWorldService.cs      # Sample transient service for the demo button
+        ├── MainWindow.xaml(.cs)      # Resolves HelloWorldService from DI
+        ├── MyProjectNameModule.cs    # [DependsOn(typeof(AbpAutofacModule))]
+        ├── MyCompanyName.MyProjectName.csproj
+        └── appsettings.json
+```
+
+`App.xaml.cs` creates the `AbpApplication`, stores it on the application instance, and shuts it down on `Application_Exit`. `MainWindow.xaml.cs` pulls services from the application's `IServiceProvider` to keep the demo readable without introducing a separate MVVM framework.
+
+## Template registration
+
+`WpfTemplate` (`framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectBuilding/Templates/Wpf/WpfTemplate.cs`) registers under `"wpf"` and inherits the standard rename/clean steps from `WpfTemplateBase`. The template is Windows-only (`<TargetFramework>net10.0-windows</TargetFramework>` with `<UseWPF>true</UseWPF>`), and the CLI does not expose UI/database flags for it — like the MAUI and console templates, it is a client meant to consume an existing ABP backend.
+
+<Card title="Other templates" href="/templates/overview">Choose a different starter shape.</Card>

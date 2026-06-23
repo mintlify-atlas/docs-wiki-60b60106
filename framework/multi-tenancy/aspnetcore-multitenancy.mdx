@@ -1,0 +1,127 @@
+---
+title: "ASP.NET Core Multi-Tenancy Middleware and UI"
+sidebarTitle: "ASP.NET Core"
+description: "How MultiTenancyMiddleware resolves tenants per HTTP request, manages the tenant cookie and renders the tenant switch modal."
+---
+
+The `Volo.Abp.AspNetCore.MultiTenancy` module is the ASP.NET Core wrapper around the protocol-agnostic [tenant resolution pipeline](/framework/multi-tenancy/tenant-resolution). It registers the HTTP-aware resolve contributors, installs a single middleware that opens the `ICurrentTenant.Change(...)` scope for the duration of the request, and ships a tenant switch UI in `Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy`. All of this lives under `framework/src/Volo.Abp.AspNetCore.MultiTenancy/` and `framework/src/Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy/`.
+
+## Module wiring
+
+`AbpAspNetCoreMultiTenancyModule` (`framework/src/Volo.Abp.AspNetCore.MultiTenancy/Volo/Abp/AspNetCore/MultiTenancy/AbpAspNetCoreMultiTenancyModule.cs`) pre-populates the contributor list:
+
+```csharp
+Configure<AbpTenantResolveOptions>(options =>
+{
+    options.TenantResolvers.Add(new QueryStringTenantResolveContributor());
+    options.TenantResolvers.Add(new RouteTenantResolveContributor());
+    options.TenantResolvers.Add(new HeaderTenantResolveContributor());
+    options.TenantResolvers.Add(new CookieTenantResolveContributor());
+});
+```
+
+The `CurrentUserTenantResolveContributor` is registered earlier by `AbpMultiTenancyModule`, so the effective order is `CurrentUser → QueryString → Route → Header → Cookie`. Add `DomainTenantResolveContributor` yourself if you want subdomain-based tenants.
+
+## MultiTenancyMiddleware
+
+The middleware is the only piece you need to wire into the pipeline:
+
+```csharp
+app.UseAbpRequestLocalization();
+app.UseMultiTenancy(); // → MultiTenancyMiddleware
+app.UseAuthorization();
+```
+
+Its `InvokeAsync` (see `framework/src/Volo.Abp.AspNetCore.MultiTenancy/Volo/Abp/AspNetCore/MultiTenancy/MultiTenancyMiddleware.cs`) does three things:
+
+1. **Resolve** the tenant via `ITenantConfigurationProvider.GetAsync(saveResolveResult: true)`. The accessor result is preserved so other middleware (and the auth challenge page) can see which contributor handled the request.
+2. **Recover from errors** — if resolution throws, the configured `MultiTenancyMiddlewareErrorPageBuilder` runs. Returning `true` from the builder short-circuits the pipeline; returning `false` continues without a tenant.
+3. **Enter the scope** — when the resolved tenant differs from the currently-active one, the middleware wraps `next(context)` in `using (_currentTenant.Change(tenant?.Id, tenant?.Name))`. If the resolver chain reported `QueryString` as the applied resolver, the middleware also persists a tenant cookie via `AbpMultiTenancyCookieHelper.SetTenantCookie(...)` so subsequent requests don't need the query parameter.
+
+The middleware also forwards request culture: if `IRequestCultureFeature` has not already chosen a culture, it reads the per-tenant `LocalizationSettingNames.DefaultLanguage` setting and applies it for the rest of the pipeline.
+
+## AbpAspNetCoreMultiTenancyOptions
+
+`AbpAspNetCoreMultiTenancyOptions` (`framework/src/Volo.Abp.AspNetCore.MultiTenancy/Volo/Abp/AspNetCore/MultiTenancy/AbpAspNetCoreMultiTenancyOptions.cs`) is where you customise HTTP behaviour:
+
+| Property | Default | Purpose |
+| --- | --- | --- |
+| `TenantKey` | `TenantResolverConsts.DefaultTenantKey` (`"__tenant"`) | Header / cookie / query / route key used by all HTTP contributors. |
+| `MultiTenancyMiddlewareErrorPageBuilder` | Built-in builder | Async delegate invoked when tenant resolution throws. Returns `true` to indicate the response has been written. |
+
+The default builder is non-trivial:
+
+- If the only applied resolver was `CurrentUser` and the request was authenticated with cookies, it signs the user out (`CookieAuthenticationHandler.SignOutAsync`) to clear the stale tenant claim.
+- If the request carried a tenant cookie, it deletes the cookie via `AbpMultiTenancyCookieHelper.SetTenantCookie(context, null, options.TenantKey)`.
+- It writes an `Abp-Tenant-Resolve-Error` response header containing the message.
+- For AJAX / API callers it returns a JSON `RemoteServiceErrorResponse`; for browser GET requests it redirects back to the original URL (so the user retries without the bad cookie); otherwise it renders the razor error view bundled with the module.
+
+Override the builder when you need a custom error UX:
+
+```csharp
+Configure<AbpAspNetCoreMultiTenancyOptions>(options =>
+{
+    options.TenantKey = "X-Tenant"; // header/cookie key
+    options.MultiTenancyMiddlewareErrorPageBuilder = async (ctx, ex) =>
+    {
+        ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+        await ctx.Response.WriteAsync($"Unknown tenant: {ex.Message}");
+        return true; // pipeline stops here
+    };
+});
+```
+
+## Cookie helper
+
+`AbpMultiTenancyCookieHelper` (same folder) centralises read/write of the tenant cookie so the middleware, the tenant switch endpoint and the OpenIdConnect handler agree on the cookie name, path (`/`) and `SameSite` mode.
+
+## TenantResolveContextExtensions
+
+`TenantResolveContextExtensions.GetAbpAspNetCoreMultiTenancyOptions()` (`framework/src/Volo.Abp.AspNetCore.MultiTenancy/Volo/Abp/AspNetCore/MultiTenancy/TenantResolveContextExtensions.cs`) is what each HTTP contributor calls to discover the configured `TenantKey`. Override the options once and every contributor picks up the new key automatically.
+
+## Tenant switch UI
+
+The companion package `Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy` ships:
+
+- **`AbpTenantAppService`** (`framework/src/Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy/Pages/Abp/MultiTenancy/AbpTenantAppService.cs`) — exposes `FindTenantByNameAsync` / `FindTenantByIdAsync` over `ITenantStore` + `ITenantNormalizer`. Auto-controllered as `/api/multi-tenancy/tenants/...`.
+- **`AbpTenantController`** — thin MVC wrapper around the app service so non-proxy callers can `POST /Abp/MultiTenancy/Switch` with `tenantId` to update the cookie and reload.
+- **`TenantSwitchModal.cshtml`** — Bootstrap modal rendered by `<abp-current-tenant />`/`<abp-tenant-switch-link />` in shared layouts, letting users pick a tenant by name. The modal calls `FindTenantByNameAsync`, then posts the chosen tenant id to the controller which sets the `__tenant` cookie.
+
+Add the module to your web project:
+
+```csharp
+[DependsOn(typeof(AbpAspNetCoreMvcUiMultiTenancyModule))]
+public class MyWebModule : AbpModule { /* ... */ }
+```
+
+## Where it fits in your pipeline
+
+```csharp
+var app = builder.Build();
+
+app.UseAbpRequestLocalization();
+app.UseCorrelationId();
+app.UseStaticFiles();
+app.UseRouting();
+app.UseAuthentication();
+app.UseAbpOpenIddictValidation(); // or JwtBearer
+app.UseMultiTenancy();             // <-- here
+app.UseAuthorization();
+app.UseConfiguredEndpoints();
+```
+
+Order matters: `UseMultiTenancy()` must come **after** `UseAuthentication()` so `CurrentUserTenantResolveContributor` can read the authenticated user's `TenantId` claim, and **before** any business middleware that depends on `ICurrentTenant` (auditing, unit-of-work, authorization).
+
+## See also
+
+<CardGroup cols={2}>
+<Card title="Tenant Resolution" href="/framework/multi-tenancy/tenant-resolution" icon="route">
+Every contributor that feeds into the middleware.
+</Card>
+<Card title="Overview" href="/framework/multi-tenancy/overview" icon="layer-group">
+`ICurrentTenant`, `ITenantStore`, connection strings.
+</Card>
+<Card title="Data Filtering" href="/framework/multi-tenancy/data-filtering" icon="filter">
+EF global filters for `IMultiTenant` entities.
+</Card>
+</CardGroup>

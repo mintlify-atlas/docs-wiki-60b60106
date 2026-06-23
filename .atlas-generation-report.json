@@ -1,0 +1,36 @@
+{
+  "phase": "generation",
+  "shardsCompleted": 9,
+  "pagesWritten": 169,
+  "navigation": {
+    "groups": 22,
+    "tabs": 1
+  },
+  "validation": {
+    "command": "mint validate",
+    "status": "passed",
+    "notes": "Favicon URL is a remote URL; the local-favicon ENOENT message from the validator is non-blocking and does not fail the build."
+  },
+  "brokenLinks": {
+    "command": "mint broken-links",
+    "status": "passed",
+    "initialIssues": 29,
+    "filesAffected": 12,
+    "remediation": "Rewrote 16 stale slug patterns (e.g. /framework/fundamentals/* -> /framework/cross-cutting/*, /framework/infrastructure/* -> /framework/background/* and /framework/blob-storing/overview, /framework/messaging/* -> /framework/event-bus/*, /framework/data/repositories -> /framework/ddd/repositories, /framework/ui/theming -> /framework/ui-mvc/themes, /framework/web/aspnet-core/middlewares -> /framework/aspnetcore/overview, /framework/aspnetcore/navigation-menu -> /framework/ui-mvc/navigation, /framework/ui-mvc/bundling -> /framework/aspnetcore/bundling, /framework/background-services/* -> /framework/background/* and /framework/infra/distributed-locking, /framework/http/static-client-proxies -> /framework/http/static-client-proxy, /framework/http/dynamic-client-proxies -> /framework/http/dynamic-client-proxy) across all referencing pages.",
+    "finalStatus": "no broken links found"
+  },
+  "childWarnings": [
+    "Some deep pages slightly over their soft line band (aspects-and-interceptors 296L, exception-handling 270L) because tables/code excerpts would have been mutilated by trimming further.",
+    "A few brief pages are 5-30L over their 80L target where the topic genuinely needed a full API table (e.g. global-features, dapper, memory-db, timing).",
+    "caching.mdx is 173L vs deep 180L soft floor; content is dense (Mermaid + Redis provider + key normalization tables).",
+    "framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Repositories/BulkOperations/ does not exist in the repo; documented bulk APIs on the repository interfaces themselves instead.",
+    "AbpHttpExceptionStatusCodes constant class does not exist; documented AbpExceptionHttpStatusCodeOptions and AbpExceptionHandlingConsts plus DefaultHttpExceptionStatusCodeFinder mapping.",
+    "Some pages in the deep tier (cli-overview, templates/app) come in slightly under the 180L floor by line count but meet semantic depth via large tables and command/project enumerations.",
+    "No ng-add schematic exists in npm/ng-packs/packages/schematics; ng-packs/schematics-generators.mdx clarifies that workspaces are scaffolded by `abp new`, not by an ng-add schematic.",
+    "An undocumented RecreateInitialMigrationCommand exists in the CLI Commands folder; intentionally omitted from the public command table to match the planned reference surface."
+  ],
+  "pendingReview": [
+    "Optional: split aspects-and-interceptors / exception-handling if a hard line cap is desired.",
+    "Optional: cross-link audit between flows/* and the deeper subsystem pages they trace."
+  ]
+}

@@ -1,0 +1,271 @@
+---
+title: "Distributed Event Publish: Inbox/Outbox to Broker"
+sidebarTitle: "Distributed Publish"
+description: "How IDistributedEventBus.PublishAsync flows through the UoW, the outbox table and the OutboxSender background worker to a broker."
+---
+
+ABP's distributed event bus is designed for the **transactional outbox** pattern. A call to `IDistributedEventBus.PublishAsync(...)` does *not* hit RabbitMQ/Kafka/AzureSB directly — it enqueues the event on the ambient unit of work, which atomically writes an outbox row alongside your other changes when the UoW commits. A background worker (`OutboxSenderManager` → `OutboxSender`) then drains the outbox under a distributed lock and forwards each event to the broker. This page traces the publish path end-to-end.
+
+## Sequence
+
+```mermaid
+sequenceDiagram
+    participant AppSvc as Application Service
+    participant Bus as DistributedEventBusBase
+    participant Uow as UnitOfWork
+    participant Outbox as IEventOutbox (EF/Mongo)
+    participant DB as Database
+    participant Sender as OutboxSender (worker)
+    participant Lock as IAbpDistributedLock
+    participant Broker as Message Broker
+
+    AppSvc->>Bus: PublishAsync(MyEto, onUowComplete=true)
+    Bus->>Uow: AddOrReplaceDistributedEvent(record)
+    Note over Uow: Queued; nothing hits the broker yet
+    Uow->>Uow: CompleteAsync (SaveChanges loop)
+    Uow->>Bus: PublishDistributedEventsAsync(records) via UnitOfWorkEventPublisher
+    Bus->>Bus: PublishAsync(onUowComplete=false, useOutbox=true)
+    Bus->>Outbox: EnqueueAsync(OutgoingEventInfo)
+    Outbox->>DB: INSERT outbox row
+    Uow->>DB: COMMIT (outbox row + business rows in one tx)
+
+    loop Every PeriodTimeSpan
+        Sender->>Lock: TryAcquireAsync("AbpOutbox_{db}")
+        Lock-->>Sender: handle / null
+        Sender->>Outbox: GetWaitingEventsAsync(count)
+        Outbox-->>Sender: List<OutgoingEventInfo>
+        alt BatchPublishOutboxEvents
+            Sender->>Bus: PublishManyFromOutboxAsync
+            Sender->>Outbox: DeleteManyAsync(ids)
+        else one-by-one
+            Sender->>Bus: PublishFromOutboxAsync
+            Sender->>Outbox: DeleteAsync(id)
+        end
+        Bus->>Broker: provider-specific send
+    end
+```
+
+## 1. Publishing from application code
+
+You normally inject `IDistributedEventBus` and call:
+
+```csharp
+await _distributedEventBus.PublishAsync(new OrderPlacedEto { OrderId = order.Id });
+```
+
+The bus is [`DistributedEventBusBase`](https://github.com/abpframework/abp/blob/dev/framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Distributed/DistributedEventBusBase.cs). The two relevant defaults: `onUnitOfWorkComplete = true`, `useOutbox = true`.
+
+```csharp
+public virtual async Task PublishAsync(Type eventType, object eventData,
+    bool onUnitOfWorkComplete = true, bool useOutbox = true)
+{
+    if (onUnitOfWorkComplete && UnitOfWorkManager.Current != null)
+    {
+        AddToUnitOfWork(
+            UnitOfWorkManager.Current,
+            new UnitOfWorkEventRecord(eventType, eventData, EventOrderGenerator.GetNext(), useOutbox));
+        return;
+    }
+
+    if (useOutbox)
+    {
+        if (await AddToOutboxAsync(eventType, eventData)) return;
+    }
+
+    await PublishToEventBusAsync(eventType, eventData);
+
+    await TriggerDistributedEventSentAsync(new DistributedEventSent
+    {
+        Source = DistributedEventSource.Direct,
+        EventName = GetEventName(eventType, eventData),
+        EventData = GetEventData(eventData)
+    });
+}
+```
+
+Three branches:
+
+1. **Inside a UoW** — the event is queued on the current `IUnitOfWork` and will be published when the UoW completes.
+2. **No UoW + outbox configured** — `AddToOutboxAsync` writes directly to the outbox table (and a separate `SaveChanges` happens via the outbox implementation).
+3. **No UoW + no outbox** — the event is sent immediately ("direct") via the provider-specific `PublishToEventBusAsync`.
+
+## 2. UoW queuing
+
+`AddToUnitOfWork` calls `UnitOfWork.AddOrReplaceDistributedEvent`. The record is `(eventType, eventData, eventOrder, useOutbox)`. `EventOrderGenerator.GetNext()` is a monotonically increasing long that makes the publish order deterministic even when events queue from different async paths.
+
+`AddOrReplaceDistributedEvent` accepts an optional `Predicate<UnitOfWorkEventRecord>` (the "replacement selector"). Repository code uses this to collapse `EntityCreatedEto`/`EntityUpdatedEto`/`EntityDeletedEto` records for the same entity into a single event so observers don't see noise.
+
+## 3. UoW drain on completion
+
+When the UoW commits, [`UnitOfWork.CompleteAsync`](https://github.com/abpframework/abp/blob/dev/framework/src/Volo.Abp.Uow/Volo/Abp/Uow/UnitOfWork.cs) loops over local and distributed events. The distributed branch calls [`UnitOfWorkEventPublisher`](https://github.com/abpframework/abp/blob/dev/framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/UnitOfWorkEventPublisher.cs):
+
+```csharp
+public async Task PublishDistributedEventsAsync(IEnumerable<UnitOfWorkEventRecord> distributedEvents)
+{
+    foreach (var distributedEvent in distributedEvents)
+    {
+        await _distributedEventBus.PublishAsync(
+            distributedEvent.EventType,
+            distributedEvent.EventData,
+            onUnitOfWorkComplete: false,
+            useOutbox: distributedEvent.UseOutbox);
+    }
+}
+```
+
+The re-entry to `PublishAsync` now has `onUnitOfWorkComplete = false`, so the **outbox branch** runs (assuming `useOutbox = true`, which is the default).
+
+> **Why two hops?** Decoupling lets the per-event `UseOutbox` flag override the global default. You can call `_distributedEventBus.PublishAsync(eto, useOutbox: false)` to bypass the outbox for a specific event while still respecting the UoW boundary.
+
+## 4. Writing to the outbox
+
+`AddToOutboxAsync` iterates `AbpDistributedEventBusOptions.Outboxes`, finding the configured outboxes (often a single EF Core outbox keyed by your `DbContext`):
+
+```csharp
+foreach (var outboxConfig in AbpDistributedEventBusOptions.Outboxes.Values.OrderBy(x => x.Selector is null))
+{
+    if (outboxConfig.Selector == null || outboxConfig.Selector(eventType))
+    {
+        var eventOutbox = (IEventOutbox)unitOfWork.ServiceProvider.GetRequiredService(outboxConfig.ImplementationType);
+        (var eventName, eventData) = ResolveEventForPublishing(eventType, eventData);
+
+        await OnAddToOutboxAsync(eventName, eventType, eventData);
+
+        var outgoingEventInfo = new OutgoingEventInfo(
+            GuidGenerator.Create(),
+            eventName,
+            Serialize(eventData),
+            Clock.Now);
+
+        var correlationId = CorrelationIdProvider.Get();
+        if (correlationId != null) outgoingEventInfo.SetCorrelationId(correlationId);
+
+        await eventOutbox.EnqueueAsync(outgoingEventInfo);
+        addedToOutbox = true;
+    }
+}
+```
+
+Important details:
+
+- The outbox row is enqueued **into the same UoW that's currently committing**. The EF Core implementation of `IEventOutbox` writes to a `DbSet<OutgoingEventRecord>` on the configured `DbContext`, so the row participates in the same database transaction. That's what makes "exactly-once-from-the-publisher's-perspective" possible.
+- `Selector` lets you route specific event types to specific outboxes (e.g. financial events to a dedicated DB).
+- `Serialize` is provider-defined; the in-box providers use `IDistributedEventSerializer` (System.Text.Json) by default.
+- The correlation id is propagated so consumers can trace the full chain.
+
+## 5. The outbox sender worker
+
+[`OutboxSenderManager`](https://github.com/abpframework/abp/blob/dev/framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Distributed/OutboxSenderManager.cs) is registered as a background worker on application start:
+
+```csharp
+public async Task StartAsync(CancellationToken cancellationToken = default)
+{
+    foreach (var outboxConfig in Options.Outboxes.Values)
+    {
+        if (outboxConfig.IsSendingEnabled)
+        {
+            var sender = ServiceProvider.GetRequiredService<IOutboxSender>();
+            await sender.StartAsync(outboxConfig, cancellationToken);
+            Senders.Add(sender);
+        }
+    }
+}
+```
+
+Each [`OutboxSender`](https://github.com/daytona/repos/abpframework/abp/blob/dev/framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Distributed/OutboxSender.cs) sets up an `AbpAsyncTimer` driven by `AbpEventBusBoxesOptions.PeriodTimeSpan` (defaults to 2 seconds) and runs the poll loop on `Elapsed`:
+
+```csharp
+protected virtual async Task RunAsync()
+{
+    await using (var handle = await DistributedLock.TryAcquireAsync(DistributedLockName, cancellationToken: StoppingToken))
+    {
+        if (handle != null)
+        {
+            while (true)
+            {
+                var waitingEvents = await GetWaitingEventsAsync();
+                if (waitingEvents.Count <= 0) break;
+
+                Logger.LogInformation($"Found {waitingEvents.Count} events in the outbox.");
+
+                if (EventBusBoxesOptions.BatchPublishOutboxEvents)
+                    await PublishOutgoingMessagesInBatchAsync(waitingEvents);
+                else
+                    await PublishOutgoingMessagesAsync(waitingEvents);
+            }
+        }
+        else
+        {
+            Logger.LogDebug("Could not obtain the distributed lock: " + DistributedLockName);
+            try { await Task.Delay(EventBusBoxesOptions.DistributedLockWaitDuration, StoppingToken); }
+            catch (TaskCanceledException) { }
+        }
+    }
+}
+```
+
+The distributed lock (`AbpOutbox_{DatabaseName}`) ensures only one node drains a given outbox at a time. Without a Redis/SqlServer distributed lock module the in-memory implementation grants the lock locally — fine for single-instance deployments, but you should plug in a real one (`Volo.Abp.DistributedLocking.Redis` or similar) before scaling out.
+
+## 6. Per-event vs batched publish
+
+Two strategies, controlled by `AbpEventBusBoxesOptions.BatchPublishOutboxEvents`:
+
+```csharp
+protected virtual async Task PublishOutgoingMessagesAsync(List<OutgoingEventInfo> waitingEvents)
+{
+    foreach (var waitingEvent in waitingEvents)
+    {
+        await DistributedEventBus.AsSupportsEventBoxes().PublishFromOutboxAsync(waitingEvent, OutboxConfig);
+        await Outbox.DeleteAsync(waitingEvent.Id);
+        Logger.LogInformation($"Sent the event to the message broker with id = {waitingEvent.Id:N}");
+    }
+}
+
+protected virtual async Task PublishOutgoingMessagesInBatchAsync(List<OutgoingEventInfo> waitingEvents)
+{
+    await DistributedEventBus.AsSupportsEventBoxes().PublishManyFromOutboxAsync(waitingEvents, OutboxConfig);
+    await Outbox.DeleteManyAsync(waitingEvents.Select(x => x.Id).ToArray());
+    Logger.LogInformation($"Sent {waitingEvents.Count} events to message broker");
+}
+```
+
+The concrete `PublishFromOutboxAsync`/`PublishManyFromOutboxAsync` is implemented in the provider:
+
+| Provider | Module | Behaviour |
+|---------|--------|-----------|
+| RabbitMQ | `Volo.Abp.EventBus.RabbitMQ` | Publishes to the configured exchange; `PublishMany` uses a transactional channel batch when supported. |
+| Kafka | `Volo.Abp.EventBus.Kafka` | Sends to the configured topic with the event name as the key. |
+| Azure Service Bus | `Volo.Abp.EventBus.Azure` | Uses `ServiceBusSender.SendMessagesAsync` for batches. |
+| RebusEventBus | `Volo.Abp.EventBus.Rebus` | Defers to Rebus's transport. |
+| Local | `LocalDistributedEventBus` | In-process; used in tests and single-process apps. |
+
+Failure semantics: if the broker call throws, `DeleteAsync` is **not** called, so the row stays in the outbox and will be retried on the next tick. This gives at-least-once delivery.
+
+## 7. Local distributed bus
+
+When no real broker is configured the bus is [`LocalDistributedEventBus`](https://github.com/abpframework/abp/blob/dev/framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Distributed/LocalDistributedEventBus.cs). It still honours the outbox path — `PublishFromOutboxAsync` invokes the in-process handlers and the row is then deleted. This makes integration tests behave identically to production except for the network hop.
+
+## 8. Direct publish (no UoW, no outbox)
+
+If you publish outside any UoW and either pass `useOutbox: false` or have no outbox configured, the bus reaches `PublishToEventBusAsync` directly. The fire-and-forget shape means transient broker failures simply bubble up; you lose the durability guarantee. Use this only for cross-cutting telemetry events where loss is acceptable.
+
+`TriggerDistributedEventSentAsync` posts a local `DistributedEventSent` event after a successful direct publish — handy for OpenTelemetry-style observability.
+
+## 9. The inbox side (for completeness)
+
+The mirror image is the **inbox**: when a subscribing endpoint receives a broker message, it doesn't dispatch it directly. `AddToInboxAsync` writes a row to an `IEventInbox`, and [`InboxProcessor`](https://github.com/abpframework/abp/blob/dev/framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Distributed/InboxProcessor.cs) (driven by `InboxProcessManager`) dequeues, deduplicates by `MessageId`, and invokes handlers under the same UoW boundary. See [/framework/event-bus/overview](/framework/event-bus/overview) for the consumer-side detail.
+
+## Failure modes & operations
+
+- **Outbox grows unbounded.** Either the worker isn't running (no `IsSendingEnabled = true`), the distributed lock holder is dead, or the broker is unreachable. Inspect `AbpEventOutbox` rows by `CreationTime`.
+- **Duplicate publishes downstream.** At-least-once is by design; consumers must deduplicate using `MessageId` (the inbox does this automatically when configured).
+- **Cross-DB transactional consistency.** If `useOutbox: true` is paired with an event type whose `Selector` routes to a *different* `DbContext` than the business changes, the outbox row is in a different DB and the transactional guarantee is broken. Keep the outbox in the same DB as the business data.
+- **Ordering.** `EventOrder` preserves intra-UoW ordering at publish. Brokers may reorder across nodes; design idempotent handlers.
+- **Big payloads.** `Serialize(eventData)` stores the raw JSON. Avoid embedding large blobs; reference them by id.
+
+## Related pages
+
+- [/flows/unit-of-work-lifecycle](/flows/unit-of-work-lifecycle) — the `CompleteAsync` loop that triggers the outbox enqueue.
+- [/framework/event-bus/overview](/framework/event-bus/overview) — local vs distributed bus and handler registration.
+- [/framework/event-bus/distributed-event-bus](/framework/event-bus/distributed-event-bus) — provider-specific options and inbox/outbox configuration.
+- [/framework/infra/distributed-locking](/framework/infra/distributed-locking) — what backs `IAbpDistributedLock` in production.

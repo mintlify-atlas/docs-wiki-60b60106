@@ -1,72 +1,314 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "ABP",
+  "theme": "maple",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#ba4395",
+    "light": "#ffffff",
+    "dark": "#7a2a62"
   },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
+  "favicon": "https://media.brand.dev/861559e5-617f-43f0-a53d-ded6f1e1fc91.png",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "https://media.brand.dev/2662d8ba-e84e-4dd7-a4d1-0228c7be0941.svg",
+    "dark": "https://media.brand.dev/2662d8ba-e84e-4dd7-a4d1-0228c7be0941.svg"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/abpframework/abp"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/abpframework/abp"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Wiki",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "index",
+              "overview/architecture",
+              "overview/repository-layout",
+              "overview/solution-structure",
+              "overview/glossary"
+            ]
+          },
+          {
+            "group": "Core Runtime",
+            "pages": [
+              "framework/core/overview",
+              "framework/core/abp-application",
+              "framework/core/modularity",
+              "framework/core/dependency-injection",
+              "framework/core/aspects-and-interceptors",
+              "framework/core/exception-handling",
+              "framework/core/threading"
+            ]
+          },
+          {
+            "group": "DDD Building Blocks",
+            "pages": [
+              "framework/ddd/overview",
+              "framework/ddd/entities-and-aggregates",
+              "framework/ddd/repositories",
+              "framework/ddd/domain-services",
+              "framework/ddd/application-services",
+              "framework/ddd/specifications",
+              "framework/ddd/object-extending"
+            ]
+          },
+          {
+            "group": "Data & Persistence",
+            "pages": [
+              "framework/data/overview",
+              "framework/data/unit-of-work",
+              "framework/data/entity-framework-core",
+              "framework/data/mongodb",
+              "framework/data/dapper",
+              "framework/data/memory-db",
+              "framework/data/data-seeding-and-filtering"
+            ]
+          },
+          {
+            "group": "Cross-Cutting Concerns",
+            "pages": [
+              "framework/cross-cutting/authorization",
+              "framework/cross-cutting/auditing",
+              "framework/cross-cutting/validation",
+              "framework/cross-cutting/localization",
+              "framework/cross-cutting/settings",
+              "framework/cross-cutting/features",
+              "framework/cross-cutting/global-features",
+              "framework/cross-cutting/caching",
+              "framework/cross-cutting/object-mapping",
+              "framework/cross-cutting/virtual-file-system",
+              "framework/cross-cutting/text-templating",
+              "framework/cross-cutting/timing",
+              "framework/cross-cutting/guids",
+              "framework/cross-cutting/security",
+              "framework/cross-cutting/json-serialization"
+            ]
+          },
+          {
+            "group": "Multi-Tenancy",
+            "pages": [
+              "framework/multi-tenancy/overview",
+              "framework/multi-tenancy/tenant-resolution",
+              "framework/multi-tenancy/aspnetcore-multitenancy",
+              "framework/multi-tenancy/data-filtering"
+            ]
+          },
+          {
+            "group": "ASP.NET Core Integration",
+            "pages": [
+              "framework/aspnetcore/overview",
+              "framework/aspnetcore/mvc",
+              "framework/aspnetcore/authentication",
+              "framework/aspnetcore/bundling",
+              "framework/aspnetcore/signalr",
+              "framework/aspnetcore/serilog",
+              "framework/aspnetcore/swashbuckle",
+              "framework/aspnetcore/api-versioning"
+            ]
+          },
+          {
+            "group": "HTTP & Remote Services",
+            "pages": [
+              "framework/http/overview",
+              "framework/http/dynamic-client-proxy",
+              "framework/http/static-client-proxy",
+              "framework/http/identity-model",
+              "framework/http/remote-services"
+            ]
+          },
+          {
+            "group": "Event Bus",
+            "pages": [
+              "framework/event-bus/overview",
+              "framework/event-bus/local-event-bus",
+              "framework/event-bus/distributed-event-bus",
+              "framework/event-bus/rabbitmq",
+              "framework/event-bus/kafka",
+              "framework/event-bus/azure-service-bus",
+              "framework/event-bus/dapr",
+              "framework/event-bus/rebus"
+            ]
+          },
+          {
+            "group": "Background Jobs & Workers",
+            "pages": [
+              "framework/background/overview",
+              "framework/background/background-jobs",
+              "framework/background/background-workers",
+              "framework/background/hangfire",
+              "framework/background/quartz",
+              "framework/background/rabbitmq",
+              "framework/background/tickerq"
+            ]
+          },
+          {
+            "group": "BLOB Storage",
+            "pages": [
+              "framework/blob-storing/overview",
+              "framework/blob-storing/providers"
+            ]
+          },
+          {
+            "group": "UI & Theming (MVC/Razor)",
+            "pages": [
+              "framework/ui-mvc/overview",
+              "framework/ui-mvc/bootstrap-tag-helpers",
+              "framework/ui-mvc/themes",
+              "framework/ui-mvc/widgets",
+              "framework/ui-mvc/navigation"
+            ]
+          },
+          {
+            "group": "Blazor Integration",
+            "pages": [
+              "framework/blazor/overview",
+              "framework/blazor/server",
+              "framework/blazor/webassembly",
+              "framework/blazor/maui",
+              "framework/blazor/mudblazor",
+              "framework/blazor/blazorise"
+            ]
+          },
+          {
+            "group": "Other Infrastructure",
+            "pages": [
+              "framework/infra/distributed-locking",
+              "framework/infra/emailing",
+              "framework/infra/sms",
+              "framework/infra/imaging",
+              "framework/infra/ai",
+              "framework/infra/ldap",
+              "framework/infra/dapr",
+              "framework/infra/minify",
+              "framework/infra/auto-mapper",
+              "framework/infra/mapperly",
+              "framework/infra/fluent-validation",
+              "framework/infra/autofac",
+              "framework/infra/castle-core"
+            ]
+          },
+          {
+            "group": "Pre-built Modules",
+            "pages": [
+              "modules/overview",
+              "modules/identity",
+              "modules/account",
+              "modules/openiddict",
+              "modules/identity-server",
+              "modules/permission-management",
+              "modules/feature-management",
+              "modules/setting-management",
+              "modules/tenant-management",
+              "modules/audit-logging",
+              "modules/background-jobs",
+              "modules/blob-storing-database",
+              "modules/cms-kit",
+              "modules/blogging",
+              "modules/docs",
+              "modules/users",
+              "modules/basic-theme",
+              "modules/virtual-file-explorer",
+              "modules/client-simulation"
+            ]
+          },
+          {
+            "group": "Angular UI (ng-packs)",
+            "pages": [
+              "ng-packs/overview",
+              "ng-packs/core",
+              "ng-packs/components",
+              "ng-packs/theme-shared",
+              "ng-packs/theme-basic",
+              "ng-packs/account",
+              "ng-packs/identity",
+              "ng-packs/permission-management",
+              "ng-packs/feature-management",
+              "ng-packs/setting-management",
+              "ng-packs/tenant-management",
+              "ng-packs/cms-kit",
+              "ng-packs/oauth",
+              "ng-packs/schematics-generators"
+            ]
+          },
+          {
+            "group": "NPM Packs (MVC/Web)",
+            "pages": [
+              "npm-packs/overview",
+              "npm-packs/core-and-utils",
+              "npm-packs/aspnetcore-mvc-ui",
+              "npm-packs/theme-shared-and-basic",
+              "npm-packs/cms-kit-packs",
+              "npm-packs/vendor-libraries"
+            ]
+          },
+          {
+            "group": "CLI & Tooling",
+            "pages": [
+              "tooling/cli-overview",
+              "tooling/cli-commands",
+              "tooling/project-building",
+              "tooling/project-modification",
+              "tooling/service-proxying",
+              "tooling/bundling",
+              "tooling/install-libs",
+              "tooling/mcp"
+            ]
+          },
+          {
+            "group": "Templates",
+            "pages": [
+              "templates/overview",
+              "templates/app",
+              "templates/app-nolayers",
+              "templates/module",
+              "templates/console",
+              "templates/maui",
+              "templates/wpf",
+              "templates/angular"
+            ]
+          },
+          {
+            "group": "Source-Code Modules",
+            "pages": [
+              "source-code/overview"
+            ]
+          },
+          {
+            "group": "Key Flows",
+            "pages": [
+              "flows/application-startup",
+              "flows/http-request-pipeline",
+              "flows/unit-of-work-lifecycle",
+              "flows/authorization-pipeline",
+              "flows/distributed-event-publish",
+              "flows/background-job-execution",
+              "flows/tenant-resolution-flow",
+              "flows/dynamic-client-proxy-call",
+              "flows/audit-log-pipeline"
+            ]
+          },
+          {
+            "group": "Build, Test & Deployment",
+            "pages": [
+              "build/overview",
+              "build/scripts",
+              "build/github-workflows",
+              "build/nuget-and-npm",
+              "build/testing"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

@@ -1,0 +1,41 @@
+---
+title: "MAUI Template: .NET MAUI Blazor Cross-Platform Client"
+sidebarTitle: "MAUI"
+description: "The cross-platform .NET MAUI Blazor starter selected by `abp new -t maui` — a Shell app that boots AbpApplication and ships HelloWorldService as a sample DI consumer."
+---
+
+`templates/maui/` is the .NET MAUI starter scaffolded by `abp new <name> -t maui`. It produces a single MAUI Blazor project that runs on Windows, macOS, iOS, and Android while still composing through the ABP module system.
+
+## Layout
+
+```text
+templates/maui/
+├── MyCompanyName.MyProjectName.slnx
+├── common.props
+└── src/
+    └── MyCompanyName.MyProjectName/
+        ├── App.xaml(.cs)
+        ├── AppShell.xaml(.cs)
+        ├── MainPage.xaml(.cs)
+        ├── MauiProgram.cs
+        ├── HelloWorldService.cs
+        ├── MyProjectNameModule.cs
+        ├── MyCompanyName.MyProjectName.csproj
+        ├── Platforms/                 # Android, iOS, MacCatalyst, Tizen, Windows
+        ├── Properties/
+        ├── Resources/
+        └── appsettings.json
+```
+
+`MauiProgram.cs` calls `MauiApp.CreateBuilder()` and chains an `AbpApplicationFactory.Create<MyProjectNameModule>(...)` call so the ABP DI container is registered alongside MAUI's services. `MyProjectNameModule` derives from `AbpModule` and depends on `AbpAutofacModule`.
+
+## Template registration
+
+`MauiTemplate` (`framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectBuilding/Templates/Maui/MauiTemplate.cs`) registers under `"maui"` and contributes two custom steps:
+
+- `MauiChangeApplicationIdGuidStep` — replaces the placeholder Android/iOS application ID with a new GUID so each generated app gets a unique identity.
+- `MauiChangePortStep` — patches the development port used to talk to the backend `HttpApi.Host` so collisions across multiple generated apps are avoided.
+
+`MauiTemplate` does not have UI/database flags of its own — the backend it talks to is whichever ABP host you point it at via `appsettings.json`. A common pairing is `abp new Acme.BookStore -m maui` on a layered `app` template, which generates the API in one solution and a MAUI client that consumes it in another.
+
+<Card title="Other templates" href="/templates/overview">Choose a different starter shape.</Card>

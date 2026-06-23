@@ -1,0 +1,92 @@
+---
+title: "ng-packs — Angular Monorepo Layout and Build"
+sidebarTitle: "Overview"
+description: "Tour of the @abp/ng.* Nx + Lerna monorepo: apps, packages, schematics, generators, and source-code requirements used to ship the Angular UI."
+---
+
+`npm/ng-packs/` is the home of every `@abp/ng.*` package — the Angular client side of ABP. It is an [Nx](https://nx.dev) workspace driven by [Lerna](https://lerna.js.org) for versioning and publishing, with a single dev application that consumes the libraries as you build them.
+
+## Workspace shape
+
+```
+npm/ng-packs/
+├── apps/
+│   ├── dev-app/          # the dev playground (Angular app)
+│   └── dev-app-e2e/      # Cypress e2e tests against dev-app
+├── packages/             # all publishable libraries
+├── scripts/              # build/copy scripts (incl. schematics build)
+├── source-code-requirements/  # baseline tsconfig/karma for downstream
+├── guides/, tools/, pre-commit/
+├── nx.json               # Nx workspace config (libsDir: packages)
+├── lerna.version.json    # version bump config (independent ranges)
+├── lerna.publish.json    # publish config — packages: dist/packages/*
+├── tsconfig.base.json
+└── package.json          # workspace scripts (yarn-based)
+```
+
+`nx.json` declares `workspaceLayout: { libsDir: "packages", appsDir: "" }` and sets `dev-app` as the default project. Lerna versions out of `packages/*` (`lerna.version.json`) but publishes the built output from `dist/packages/*` (`lerna.publish.json`).
+
+## Build & test scripts
+
+Top-level scripts in `npm/ng-packs/package.json`:
+
+```json
+{
+  "build:all": "nx run-many --target=build --all --exclude=dev-app,schematics --prod && npm run build:schematics",
+  "test:all":  "nx run-many --target=test --all",
+  "lint:all":  "nx run-many --target=lint --all",
+  "affected":  "nx affected",
+  "ci":        "yarn affected:lint && yarn affected:build && yarn affected:test",
+  "build:schematics": "cd scripts && yarn && yarn build:schematics && cd .."
+}
+```
+
+The schematics package is built out-of-band by `scripts/` because it needs different TypeScript settings than the Angular libraries.
+
+## Packages
+
+Everything in `npm/ng-packs/packages/` ships to npm under the `@abp/ng.*` (or `@abp/nx.*`) scope.
+
+| Folder | Package | Role |
+| --- | --- | --- |
+| `core` | `@abp/ng.core` | DI, config state, REST, auth abstractions, interceptors, proxy types |
+| `components` | `@abp/ng.components` | Shared UI (page, breadcrumb, chart, tree, extensible-table, dynamic-form, lookup) |
+| `theme-shared` | `@abp/ng.theme.shared` | Toaster, confirmation, modal, error component, layout primitives |
+| `theme-basic` | `@abp/ng.theme.basic` | Default theme: application/account/empty layouts, navbar, menu |
+| `account` | `@abp/ng.account` | Login, register, profile, reset-password components & routes |
+| `account-core` | `@abp/ng.account.core` | Headless account services (auth-wrapper, tenant-box) |
+| `identity` | `@abp/ng.identity` | Users & roles admin UI + proxies |
+| `permission-management` | `@abp/ng.permission-management` | Permission grant modal |
+| `feature-management` | `@abp/ng.feature-management` | Feature toggle modal |
+| `setting-management` | `@abp/ng.setting-management` | Settings host page |
+| `tenant-management` | `@abp/ng.tenant-management` | Tenant CRUD UI |
+| `cms-kit` | `@abp/ng.cms-kit` | Aggregate; re-exports `cms-kit/admin` + `cms-kit/public` entry points |
+| `oauth` | `@abp/ng.oauth` | `angular-oauth2-oidc` wrapper implementing `IAuthService` |
+| `schematics` | `@abp/ng.schematics` | `ng generate` schematics (proxy-add, api, ssr-add, change-theme, …) |
+| `generators` | `@abp/nx.generators` | Nx generators (generate-proxy, update-version, change-theme) |
+
+## dev-app and the dev loop
+
+`apps/dev-app/` is a normal Angular application registered in `nx.json` as `defaultProject`. Library changes are picked up via TypeScript path mappings in `tsconfig.base.json`, so `yarn start` (`nx serve`) serves the playground against the live library sources — no rebuild needed between edits.
+
+SSR is wired in too: `dev:ssr`, `serve:ssr`, `build:ssr`, and `prerender` scripts target the same dev-app.
+
+## Schematics & generators
+
+Two parallel surfaces ship code-generation:
+
+- **`packages/schematics/`** — Angular CLI schematics (collection at `src/collection.json`). Includes `proxy-add`, `proxy-index`, `proxy-refresh`, `proxy-remove`, `api`, `create-lib`, `change-theme`, `ai-config`, and `ssr-add`. The `abp-ng-add` story (in `@abp/cli`) eventually invokes these.
+- **`packages/generators/`** — Nx generators (`generators.json`): `generate-proxy`, `update-version`, `change-theme`. Used inside the ng-packs workspace itself (e.g. `yarn update-version` calls `@abp/nx.generators:update-version`).
+
+See [Schematics & Generators](/ng-packs/schematics-generators) for details.
+
+## source-code-requirements
+
+`npm/ng-packs/source-code-requirements/` is a sentinel folder shipped with the framework: it contains the minimum `tsconfig.lib.json`, `tsconfig.lib.prod.json`, `tsconfig.spec.json`, `tslint.json`, and `karma.conf.js` that an ABP-generated Angular app is expected to keep in sync. CLI templates copy from here, so downstream apps stay compatible with the latest Angular toolchain assumptions.
+
+<CardGroup cols={2}>
+  <Card title="@abp/ng.core" href="/ng-packs/core">Config state, REST, auth, interceptors</Card>
+  <Card title="@abp/ng.components" href="/ng-packs/components">Page, breadcrumb, chart, tree</Card>
+  <Card title="theme.shared" href="/ng-packs/theme-shared">Toaster, confirmation, modal</Card>
+  <Card title="Schematics" href="/ng-packs/schematics-generators">ng generate, Nx generators</Card>
+</CardGroup>

@@ -1,0 +1,52 @@
+---
+title: "HTML, CSS, and JavaScript Minification via NUglify"
+sidebarTitle: "Minify"
+description: "Single-method IMinifier abstraction backed by NUglify implementations for HTML, CSS, and JavaScript minification."
+---
+
+`Volo.Abp.Minify` exposes a common `IMinifier` contract and three subtype markers — one per source language — so the UI bundling/minification system can resolve the right minifier through DI.
+
+## IMinifier and subtypes
+
+```csharp framework/src/Volo.Abp.Minify/Volo/Abp/Minify/IMinifier.cs
+public interface IMinifier
+{
+    string Minify(string source, string? fileName = null, string? originalFileName = null);
+}
+```
+
+The three subtypes are empty marker interfaces used as DI keys:
+
+```csharp framework/src/Volo.Abp.Minify/Volo/Abp/Minify/Html/IHtmlMinifier.cs
+public interface IHtmlMinifier : IMinifier { }
+```
+
+`IJavascriptMinifier` (`Volo/Abp/Minify/Scripts/IJavascriptMinifier.cs`) and `ICssMinifier` (`Volo/Abp/Minify/Styles/ICssMinifier.cs`) follow the same shape.
+
+## NUglify implementations
+
+The package ships [NUglify](https://github.com/trullock/NUglify)-backed implementations that each call into `Uglify.Html`, `Uglify.Js`, or `Uglify.Css` through the shared `NUglifyMinifierBase`:
+
+```csharp framework/src/Volo.Abp.Minify/Volo/Abp/Minify/NUglify/NUglifyHtmlMinifier.cs
+public class NUglifyHtmlMinifier : NUglifyMinifierBase, IHtmlMinifier
+{
+    protected override UglifyResult UglifySource(string source, string? fileName)
+    {
+        return Uglify.Html(source, sourceFileName: fileName);
+    }
+}
+```
+
+`NUglifyException` (in `framework/src/Volo.Abp.Minify/Volo/Abp/Minify/NUglify/NUglifyException.cs`) wraps any errors `Uglify` reports so callers see a typed exception. The module itself is a no-op:
+
+```csharp framework/src/Volo.Abp.Minify/Volo/Abp/Minify/AbpMinifyModule.cs
+public class AbpMinifyModule : AbpModule { }
+```
+
+— minifiers are registered through ABP's conventional DI scan.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="AutoMapper" icon="arrows-left-right" href="/framework/infra/auto-mapper" />
+</CardGroup>

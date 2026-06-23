@@ -1,0 +1,167 @@
+---
+title: "Object mapping with AutoMapper and Mapperly providers"
+sidebarTitle: "Object Mapping"
+description: "IObjectMapper, IObjectMapper<TContext>, the IMapFrom/IMapTo conventions, and the AutoMapper and Mapperly providers ABP ships."
+---
+
+`Volo.Abp.ObjectMapping` defines a tiny provider-agnostic API — `IObjectMapper.Map<TSource, TDestination>(source)` — and ships two concrete implementations: an AutoMapper-based provider for projects that want runtime configuration and a Mapperly-based provider for projects that want zero-allocation source-generated mappers. The same `IObjectMapper` consumer code works against either, and a generic `IObjectMapper<TContext>` lets several mappers coexist in one app.
+
+## Module surface
+
+```csharp
+// framework/src/Volo.Abp.ObjectMapping/Volo/Abp/ObjectMapping/AbpObjectMappingModule.cs
+public class AbpObjectMappingModule : AbpModule
+{
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.AddTransient(typeof(IObjectMapper<>), typeof(DefaultObjectMapper<>));
+        context.Services.AddTransient(typeof(IAutoObjectMappingProvider<>), typeof(NotImplementedAutoObjectMappingProvider<>));
+    }
+}
+```
+
+`DefaultObjectMapper` is registered as `ITransientDependency` (`DefaultObjectMapper.cs`); `NotImplementedAutoObjectMappingProvider` is the stub that throws unless a real provider module is installed. Pulling in `Volo.Abp.AutoMapper` or `Volo.Abp.Mapperly` replaces that stub.
+
+## `IObjectMapper` contract
+
+```csharp
+public interface IObjectMapper
+{
+    IAutoObjectMappingProvider AutoObjectMappingProvider { get; }
+    TDestination Map<TSource, TDestination>(TSource source);
+    TDestination Map<TSource, TDestination>(TSource source, TDestination destination);
+}
+
+public interface IObjectMapper<TContext> : IObjectMapper { }
+
+public interface IObjectMapper<in TSource, TDestination>
+{
+    TDestination Map(TSource source);
+    TDestination Map(TSource source, TDestination destination);
+}
+```
+
+Two layers cohabit on purpose:
+
+- **Generic `IObjectMapper`** is the workhorse you inject everywhere. It resolves the right strategy at call time.
+- **Specific `IObjectMapper<TSource, TDestination>`** is the override hook: register one of these in DI and `DefaultObjectMapper` will pick it up *before* falling through to the auto-provider. Use it when one pair of types needs hand-tuned mapping but the rest of the project can stay automatic.
+
+The `IObjectMapper<TContext>` overload is a *marker* — the context type itself is unused as data; it lets you register two distinct mappers for the same source/destination pair, scoped by context.
+
+## `DefaultObjectMapper`
+
+```csharp
+public virtual TDestination Map<TSource, TDestination>(TSource source)
+{
+    if (source == null) return default!;
+
+    using var scope = ServiceProvider.CreateScope();
+    var specificMapper = scope.ServiceProvider.GetService<IObjectMapper<TSource, TDestination>>();
+    if (specificMapper != null) return specificMapper.Map(source);
+
+    if (TryToMapCollection<TSource, TDestination>(scope, source, default, out var collectionResult))
+        return collectionResult;
+
+    if (source is IMapTo<TDestination> mapperSource) return mapperSource.MapTo();
+    if (typeof(IMapFrom<TSource>).IsAssignableFrom(typeof(TDestination)))
+        return (TDestination)Activator.CreateInstance(typeof(TDestination), source)!;
+
+    return AutoObjectMappingProvider.Map<TSource, TDestination>(source);
+}
+```
+
+The resolution order is therefore:
+
+1. Specific `IObjectMapper<TSource, TDestination>` registered in DI.
+2. Collection mapping (`IEnumerable<X>` → `List<Y>`, etc.) via the scoped registrations.
+3. Source implements `IMapTo<TDestination>` — call `source.MapTo()`.
+4. Destination implements `IMapFrom<TSource>` — call `new TDestination(source)`.
+5. Fall through to the registered `IAutoObjectMappingProvider`.
+
+The result is that ad-hoc one-off mappings can be expressed as a method on the DTO without ever touching a profile, while bulk conventional mappings stay in the auto-provider.
+
+## `IMapFrom` / `IMapTo`
+
+```csharp
+// IMapFrom.cs
+public interface IMapFrom<in TSource> { void MapFrom(TSource source); }
+
+// IMapTo.cs
+public interface IMapTo<TDestination>
+{
+    TDestination MapTo();
+    void MapTo(TDestination destination);
+}
+```
+
+- A *destination* DTO that implements `IMapFrom<TEntity>` is hydrated via its constructor — `new TDestination(entity)`. `MapFrom` is also called when mapping into an existing instance.
+- A *source* entity that implements `IMapTo<TDto>` lets the entity own the mapping, useful when DTOs live in higher layers that can't reference the entity.
+
+When using AutoMapper, `IMapFrom`/`IMapTo` types are picked up by `AbpAutoMapperConventionalRegistrar` to auto-register `CreateMap<TSource, TDestination>()` calls.
+
+## AutoMapper provider
+
+`Volo.Abp.AutoMapper` (`framework/src/Volo.Abp.AutoMapper/`) bridges to `AutoMapper`. The pieces:
+
+- **`AutoMapperAutoObjectMappingProvider`** (`Volo/Abp/AutoMapper/AutoMapperAutoObjectMappingProvider.cs`) — calls `IMapperAccessor.Mapper.Map<TDestination>(source)` from `AutoMapper`. The two-generic `AutoMapperAutoObjectMappingProvider<TContext>` lets several AutoMapper instances coexist.
+- **`AbpAutoMapperOptions`** — exposes `AddMaps<TModule>()` so each module registers its `Profile` classes.
+- **`AbpAutoMapperModule`** — composes the `MapperConfiguration` once at startup and replaces `IAutoObjectMappingProvider` with `AutoMapperAutoObjectMappingProvider`.
+- **`AbpAutoMapperConventionalRegistrar`** — scans assemblies for `IMapFrom`/`IMapTo` types and creates corresponding maps.
+- **`AbpAutoMapperExtensibleObjectExtensions`** — wires `IHasExtraProperties.ExtraProperties` through AutoMapper using ABP's `ObjectExtensionManager` so entity-extension fields flow into DTOs.
+
+Typical module setup:
+
+```csharp
+public class MyApplicationModule : AbpModule
+{
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        Configure<AbpAutoMapperOptions>(o => o.AddMaps<MyApplicationModule>(validate: true));
+    }
+}
+public class MyMappingProfile : Profile
+{
+    public MyMappingProfile()
+    {
+        CreateMap<Book, BookDto>();
+    }
+}
+```
+
+## Mapperly provider
+
+`Volo.Abp.Mapperly` (`framework/src/Volo.Abp.Mapperly/`) plugs in source-generated mappers based on the [Riok.Mapperly](https://mapperly.riok.app/) library:
+
+- **`IAbpMapperlyMapper<TSource, TDestination>`** — the interface every generated mapper implements.
+- **`MapperBase<TSource, TDestination>`** (`Volo/Abp/Mapperly/MapperBase.cs`) — the recommended base class. Declare a partial class inheriting `MapperBase<TSource, TDestination>` and annotate methods with `[Mapper]` so Mapperly generates the body at compile time. `BeforeMap` / `AfterMap` hooks let you patch fields the generator does not know about (e.g. concurrency stamps).
+- **`TwoWayMapperBase<TSource, TDestination>`** — adds reverse mapping.
+- **`MapperlyAutoObjectMappingProvider`** (`Volo/Abp/Mapperly/MapperlyAutoObjectMappingProvider.cs`) — resolves the right `IAbpMapperlyMapper<TS, TD>` from DI per call, caches the lookup, and supports collection mapping via reflection on `MapMethods`.
+- **`AbpMapperlyConventionalRegistrar`** — picks up every `MapperBase` subclass and registers it transient.
+- **`MapExtraPropertiesAttribute`** — a Mapperly mapping-config attribute that copies `IHasExtraProperties.ExtraProperties` between source and destination.
+
+Trade-off summary:
+
+| | AutoMapper | Mapperly |
+| --- | --- | --- |
+| Reflection at startup | Yes (`MapperConfiguration`) | None |
+| Reflection per call | Cached delegates | Cached delegates |
+| Runtime allocations | Higher | Near zero (source-generated) |
+| Config style | `Profile` / `CreateMap` fluent | `[Mapper]` partial methods |
+| `IMapFrom` / `IMapTo` conventions | Auto-registered | Out of scope (use `MapperBase` subclasses) |
+
+Both can coexist — `Volo.Abp.AutoMapper` registers the auto-provider only when the module is loaded, so picking one is just a question of which package you depend on.
+
+## Practical patterns
+
+- **Inject `IObjectMapper`** everywhere except inside a one-off `MapperBase` subclass; never inject AutoMapper's `IMapper` directly.
+- **Use `IMapFrom<TEntity>` on DTOs** when the mapping is trivial and you don't want a profile file.
+- **Use `IObjectMapper<TSource, TDestination>` overrides** sparingly — they bypass the auto-provider so the override has to handle every edge case (collections, null, extra properties).
+- **For `Application.Contracts` ↔ domain mapping**, separate profiles per layer and call `AbpAutoMapperOptions.AddMaps<>` from the layer-specific module so contracts assemblies never reference AutoMapper.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Validation" href="/framework/cross-cutting/validation" />
+  <Card title="JSON serialization" href="/framework/cross-cutting/json-serialization" />
+  <Card title="Caching" href="/framework/cross-cutting/caching" />
+</CardGroup>

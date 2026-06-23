@@ -1,0 +1,74 @@
+---
+title: "Autofac Container for ABP Applications"
+sidebarTitle: "Autofac"
+description: "Replace the default Microsoft DI container with Autofac to unlock property injection and dynamic proxy interception across ABP services."
+---
+
+ABP works on top of `Microsoft.Extensions.DependencyInjection`, but interception (Castle DynamicProxy, async interceptors, ABP's interceptor pipeline) requires a container that can build proxies. `Volo.Abp.Autofac` provides that container.
+
+## UseAutofac
+
+You wire Autofac in two places: the host builder and the ABP application options. Calling `UseAutofac()` on `AbpApplicationCreationOptions` registers the service-provider factory in DI:
+
+```csharp framework/src/Volo.Abp.Autofac/Volo/Abp/AbpAutofacAbpApplicationCreationOptionsExtensions.cs
+public static void UseAutofac(this AbpApplicationCreationOptions options)
+{
+    options.Services.AddAutofacServiceProviderFactory();
+}
+
+public static AbpAutofacServiceProviderFactory AddAutofacServiceProviderFactory(
+    this IServiceCollection services, ContainerBuilder containerBuilder)
+{
+    var factory = new AbpAutofacServiceProviderFactory(containerBuilder);
+    services.AddObjectAccessor(containerBuilder);
+    services.AddSingleton((IServiceProviderFactory<ContainerBuilder>)factory);
+    return factory;
+}
+```
+
+The complementary `Microsoft.Extensions.Hosting` helper (`AbpAutofacHostBuilderExtensions`) hooks the factory into the host pipeline.
+
+## AbpAutofacServiceProviderFactory
+
+```csharp framework/src/Volo.Abp.Autofac/Volo/Abp/Autofac/AbpAutofacServiceProviderFactory.cs
+public class AbpAutofacServiceProviderFactory : IServiceProviderFactory<ContainerBuilder>
+{
+    public ContainerBuilder CreateBuilder(IServiceCollection services)
+    {
+        _services = services;
+        _builder.Populate(services);   // copies MS DI registrations into Autofac
+        return _builder;
+    }
+
+    public IServiceProvider CreateServiceProvider(ContainerBuilder containerBuilder)
+    {
+        return new AutofacServiceProvider(containerBuilder.Build());
+    }
+}
+```
+
+The `Populate` call is what makes the swap transparent: any service registered on `IServiceCollection` flows into Autofac without modification, but ABP gets to attach Autofac-specific registration callbacks (interceptors, property selectors) on top.
+
+`AbpRegistrationBuilderExtensions` (`framework/src/Volo.Abp.Autofac/Autofac/Builder/AbpRegistrationBuilderExtensions.cs`) and `AutoFacInjectPropertiesService` add property injection support via `AbpPropertySelector`.
+
+```csharp Startup
+public static class Program
+{
+    public static async Task Main(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
+        builder.Host.UseAutofac();
+
+        await builder.AddApplicationAsync<MyModule>();
+        var app = builder.Build();
+        await app.InitializeApplicationAsync();
+        await app.RunAsync();
+    }
+}
+```
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Castle Core" icon="cube" href="/framework/infra/castle-core" />
+</CardGroup>

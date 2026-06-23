@@ -1,0 +1,137 @@
+---
+title: "Blazor WebAssembly: Host Builder Bridge and Autofac"
+sidebarTitle: "WebAssembly"
+description: "AbpWebAssemblyHostBuilderExtensions, AbpBlazorClientHttpMessageHandler, AuthenticationStateProvider replacement, and Volo.Abp.Autofac.WebAssembly."
+---
+
+`Volo.Abp.AspNetCore.Components.WebAssembly` is the entry point for an ABP-powered Blazor WASM client. It wires the standard `WebAssemblyHostBuilder` into ABP's module pipeline, installs a delegating HTTP handler that forwards the user's authentication on every outgoing request, replaces Microsoft's `RemoteAuthenticationService` with an ABP-aware variant, and initialises the application-configuration cache at startup so components have permissions/settings ready before they first render.
+
+Source: `framework/src/Volo.Abp.AspNetCore.Components.WebAssembly/` and `framework/src/Volo.Abp.Autofac.WebAssembly/`.
+
+## AbpWebAssemblyHostBuilderExtensions
+
+`Microsoft/AspNetCore/Components/WebAssembly/Hosting/AbpWebAssemblyHostBuilderExtensions.cs` exposes `AddApplicationAsync<TStartupModule>` and the sync `AddApplication<TStartupModule>` on `WebAssemblyHostBuilder`:
+
+```csharp
+public async static Task<IAbpApplicationWithExternalServiceProvider> AddApplicationAsync<TStartupModule>(
+    this WebAssemblyHostBuilder builder,
+    Action<AbpWebAssemblyApplicationCreationOptions> options)
+    where TStartupModule : IAbpModule
+{
+    // Castle DynamicProxy can't replicate AsyncStateMachineAttribute under WASM
+    Castle.DynamicProxy.Generators.AttributesToAvoidReplicating.Add<AsyncStateMachineAttribute>();
+
+    builder.Services.AddSingleton<IConfiguration>(builder.Configuration);
+    builder.Services.AddSingleton(builder);
+
+    var application = await builder.Services.AddApplicationAsync<TStartupModule>(opts =>
+    {
+        options?.Invoke(new AbpWebAssemblyApplicationCreationOptions(builder, opts));
+        if (opts.Environment.IsNullOrWhiteSpace())
+        {
+            opts.Environment = builder.HostEnvironment.Environment;
+        }
+    });
+
+    return application;
+}
+```
+
+Two facts to anchor on:
+
+- The first call statically registers `AsyncStateMachineAttribute` with Castle DynamicProxy's "do not replicate" list. Without it, dynamic proxies (used by client proxies, validation interceptors) blow up in WebAssembly because the linker strips the attribute constructor.
+- `builder.Configuration` is published as a singleton `IConfiguration` *into the ABP service collection* — the same as `WebApplicationBuilder` does on the server side. Modules can therefore use the standard `IConfiguration` injection without knowing they are in WASM.
+
+After `await application.InitializeApplicationAsync(host.Services)` runs `OnApplicationInitialization` across every module, the host calls `host.RunAsync()` and the root component renders.
+
+## The runtime initialization
+
+`AbpAspNetCoreComponentsWebAssemblyModule.cs`:
+
+```csharp
+public override async Task OnApplicationInitializationAsync(ApplicationInitializationContext context)
+{
+    await context.ServiceProvider.GetRequiredService<IClientScopeServiceProviderAccessor>()
+        .ServiceProvider.GetRequiredService<WebAssemblyCachedApplicationConfigurationClient>()
+        .InitializeAsync();
+    await context.ServiceProvider.GetRequiredService<IClientScopeServiceProviderAccessor>()
+        .ServiceProvider.GetRequiredService<AbpComponentsClaimsCache>().InitializeAsync();
+    await SetCurrentLanguageAsync(context.ServiceProvider);
+}
+```
+
+Three steps run on the very first `await application.InitializeApplicationAsync(...)`:
+
+1. **Application configuration cache** — `WebAssemblyCachedApplicationConfigurationClient` calls `/api/abp/application-configuration` (see [MVC](/framework/aspnetcore/mvc)) and stores the payload in `ApplicationConfigurationCache.cs` (in-memory, per circuit).
+2. **Claims cache** — `AbpComponentsClaimsCache.InitializeAsync()` reads claim metadata so the first `<AuthorizeView>` renders correctly.
+3. **Culture** — `SetCurrentLanguageAsync` reads the resolved culture from the configuration payload and assigns it to `CultureInfo.DefaultThreadCurrentCulture` / `DefaultThreadCurrentUICulture`. If the culture is RTL, it injects a `rtl` class on the `<body>` via `IAbpUtilsService`.
+
+## The HTTP message handler
+
+`PreConfigureServices` registers `AbpBlazorClientHttpMessageHandler` on every named HTTP client proxy:
+
+```csharp
+PreConfigure<AbpHttpClientBuilderOptions>(options =>
+{
+    options.ProxyClientBuildActions.Add((_, builder) =>
+    {
+        builder.AddHttpMessageHandler<AbpBlazorClientHttpMessageHandler>();
+    });
+});
+```
+
+`AbpBlazorClientHttpMessageHandler.cs` is the delegating handler. It attaches the bearer token to outgoing requests using `IAccessTokenProvider` (Microsoft's WASM primitive) and threads through `__tenant`, `__culture`, and correlation headers using the in-WASM `ICurrentTenant` / `ICorrelationIdProvider`. The end result: an `await bookAppService.GetAsync(id)` call from a Razor component arrives at the server with the user's bearer token, the tenant cookie, and a correlation id — without the component writing any of that boilerplate.
+
+## AuthenticationStateProvider replacement
+
+`PostConfigureServices` inspects the host's existing `AuthenticationStateProvider`:
+
+```csharp
+public override void PostConfigureServices(ServiceConfigurationContext context)
+{
+    var msAuthenticationStateProvider = context.Services.FirstOrDefault(x => x.ServiceType == typeof(AuthenticationStateProvider));
+    if (msAuthenticationStateProvider is { ImplementationType: not null } &&
+        msAuthenticationStateProvider.ImplementationType.IsGenericType &&
+        msAuthenticationStateProvider.ImplementationType.GetGenericTypeDefinition() == typeof(RemoteAuthenticationService<,,>))
+    {
+        var webAssemblyAuthenticationStateProviderType = typeof(WebAssemblyAuthenticationStateProvider<,,>).MakeGenericType(
+                msAuthenticationStateProvider.ImplementationType.GenericTypeArguments[0],
+                msAuthenticationStateProvider.ImplementationType.GenericTypeArguments[1],
+                msAuthenticationStateProvider.ImplementationType.GenericTypeArguments[2]);
+        context.Services.Replace(ServiceDescriptor.Scoped(typeof(AuthenticationStateProvider), webAssemblyAuthenticationStateProviderType));
+    }
+}
+```
+
+If the project added Microsoft's WASM authentication library (`RemoteAuthenticationService<TRemoteAuthenticationState, TAccount, TProviderOptions>`), this `PostConfigureServices` replaces it with `WebAssemblyAuthenticationStateProvider<,,>` — a subclass that augments the resulting `ClaimsPrincipal` with ABP-mapped claim types and listens for application-configuration refresh events to flush the cached state. The replacement happens *after* every other module has run `ConfigureServices`, so it always wins.
+
+## Persistent component state
+
+`WebApp/PersistentComponentStateAbpAccessTokenProvider.cs` and `CookieBasedWebAssemblyAbpAccessTokenProvider.cs` are the two `IAbpAccessTokenProvider` implementations for the Blazor WebApp hybrid mode — when the same Razor component might run in Server (with a cookie) or in WebAssembly (with persisted state from prerender). The HTTP message handler picks whichever is registered.
+
+## Autofac for WASM
+
+`framework/src/Volo.Abp.Autofac.WebAssembly/Volo/Abp/Autofac/WebAssembly/AbpAutofacWebAssemblyModule.cs` is the WASM-flavoured Autofac integration. The accompanying extension does the wiring:
+
+```csharp
+public static class AbpWebAssemblyApplicationCreationOptionsAutofacExtensions
+{
+    public static void UseAutofac(this AbpWebAssemblyApplicationCreationOptions options,
+                                  Action<ContainerBuilder>? configure = null)
+    {
+        options.HostBuilder.Services.AddAutofacServiceProviderFactory();
+        options.HostBuilder.ConfigureContainer(
+            options.HostBuilder.Services.GetSingletonInstance<IServiceProviderFactory<ContainerBuilder>>(),
+            configure
+        );
+    }
+}
+```
+
+`AddApplicationAsync<MyModule>(options => options.UseAutofac())` opts the host into Autofac inside the WASM runtime. Autofac is required if the application uses property injection on components beyond `[Inject]` properties — Microsoft's default container does not support that.
+
+## What this stack does not do
+
+Authentication flow (`authentication/login`, `authentication/logout`), routing, and the static HTML index are owned by the application template, not by this module. The framework only contributes the DI/HTTP plumbing once the WebAssembly host is up.
+
+For the parallel server flow see [Server](/framework/blazor/server); for the MAUI variant that shares this module's HTTP message handler shape see [MAUI](/framework/blazor/maui).

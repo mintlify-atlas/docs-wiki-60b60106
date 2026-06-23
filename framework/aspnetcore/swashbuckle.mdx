@@ -1,0 +1,100 @@
+---
+title: "Swashbuckle Integration: Swagger Gen and UI Hardening"
+sidebarTitle: "Swashbuckle"
+description: "AddAbpSwaggerGen, AddAbpSwaggerGenWithOAuth/Oidc, hidden ABP endpoints, friendly enums, custom schema ids, and the abp.js UI patches."
+---
+
+`Volo.Abp.Swashbuckle` glues `Swashbuckle.AspNetCore` to the ABP MVC stack with a handful of opinionated defaults. The full surface is six files in `framework/src/Volo.Abp.Swashbuckle/`. There is no separate `AbpSwashbuckle.Abstractions` — everything lives in the one assembly.
+
+## AddAbpSwaggerGen and friends
+
+`framework/src/Volo.Abp.Swashbuckle/Microsoft/Extensions/DependencyInjection/AbpSwaggerGenServiceCollectionExtensions.cs` ships four extensions, all returning `IServiceCollection`:
+
+| Method | Adds | Notes |
+| --- | --- | --- |
+| `AddAbpSwaggerGen(setupAction)` | `AddSwaggerGen(...)` with `RemoteStreamContent` / `IRemoteStreamContent` mapped to `{ type: string, format: binary }`. | Use for plain bearer APIs. |
+| `AddAbpSwaggerGenWithOAuth(authority, scopes, setupAction, authorizationEndpoint, tokenEndpoint)` | Adds the `oauth2` `SecuritySchemeType.OAuth2` with `AuthorizationCode` flow pointed at `{authority}{authorizationEndpoint}` and `{authority}{tokenEndpoint}`. | Endpoints default to `/connect/authorize` and `/connect/token`. |
+| `AddAbpSwaggerGenWithOidc(authority, scopes, flows, discoveryEndpoint, setupAction)` | Configures `SecuritySchemeType.OpenIdConnect` against the IdP discovery document. | Discovery endpoint defaults to `/.well-known/openid-configuration`. |
+| `AddAbpSwaggerGenWithOAuth` overload with `Dictionary<string,string>` scopes | Convenience for typed scope→description maps. | Returns the underlying `OpenApiSecurityRequirement`. |
+
+The OAuth/OIDC helpers append an `OpenApiSecurityRequirement` so every operation is annotated with the right `Authorize` scope on the UI side.
+
+`AbpSwashbuckleController` (`Volo/Abp/Swashbuckle/AbpSwashbuckleController.cs`) serves the small `ui/abp.js` patch — see "Swagger UI" below.
+
+## SwaggerGenOptions extensions
+
+`AbpSwaggerGenOptionsExtensions.cs` exposes three helpers callable inside the `AddAbpSwaggerGen(options => ...)` lambda:
+
+```csharp
+public static class AbpSwaggerGenOptionsExtensions
+{
+    public static void HideAbpEndpoints(this SwaggerGenOptions swaggerGenOptions);
+    public static void UserFriendlyEnums(this SwaggerGenOptions swaggerGenOptions);
+    public static void CustomAbpSchemaIds(this SwaggerGenOptions options);
+}
+```
+
+- `HideAbpEndpoints()` registers `AbpSwashbuckleDocumentFilter` as an `IDocumentFilter`. The filter walks `context.ApiDescriptions` and removes any path whose backing action lives in an assembly whose `ActionDescriptor.DisplayName` starts with `Volo.*`. That hides framework endpoints such as `/api/abp/application-configuration`, `/api/abp/api-definition`, and the Abp dynamic claims controllers from the Swagger doc — keeping the published API surface focused on the application's own controllers.
+- `UserFriendlyEnums()` registers `AbpSwashbuckleEnumSchemaFilter` (`Volo/Abp/Swashbuckle/AbpSwashbuckleEnumSchemaFilter.cs`). It rewrites every enum schema to `type: string` and replaces the integer enum array with the member names, so generated clients render `BookType.Fiction` instead of `0`.
+- `CustomAbpSchemaIds()` installs `options.CustomSchemaIds(...)` with a selector that emits the full type name and replaces generic argument lists with `Of<Arg>` segments (e.g. `PagedResultDtoOfBookDto` instead of the default ambiguous `PagedResultDto`). This avoids schema-id collisions in solutions that expose generic DTOs from multiple feature modules.
+
+A typical block:
+
+```csharp
+services.AddAbpSwaggerGenWithOidc(
+    authority: configuration["AuthServer:Authority"]!,
+    scopes:    new[] { "MyApi" },
+    flows:     new[] { "authorization_code" },
+    setupAction: options =>
+    {
+        options.SwaggerDoc("v1", new OpenApiInfo { Title = "My API", Version = "v1" });
+        options.HideAbpEndpoints();
+        options.UserFriendlyEnums();
+        options.CustomAbpSchemaIds();
+    });
+```
+
+## Filters
+
+The package contributes three filters via the helpers above and the module:
+
+| Filter | Type | Source | Effect |
+| --- | --- | --- | --- |
+| `AbpSwashbuckleDocumentFilter` | `IDocumentFilter` | `Volo/Abp/Swashbuckle/AbpSwashbuckleDocumentFilter.cs` | Strips ABP framework paths, deduplicates tags, removes route-constraint syntax (`:regex(...)`). |
+| `AbpSwashbuckleEnumSchemaFilter` | `ISchemaFilter` | `Volo/Abp/Swashbuckle/AbpSwashbuckleEnumSchemaFilter.cs` | Enums become strings carrying member names. |
+| `(schema-id selector)` | n/a | `AbpSwaggerGenOptionsExtensions.CustomAbpSchemaIds` | Stable, generic-aware schema ids. |
+
+No operation filter is registered by default — operation-level concerns (auth, response codes) are inherited from MVC's standard `[ProducesResponseType]` and the `AbpRemoteServiceApiDescriptionProvider` enrichment described in [MVC](/framework/aspnetcore/mvc).
+
+## Swagger UI integration
+
+`Microsoft/AspNetCore/Builder/AbpSwaggerUIBuilderExtensions.cs`:
+
+```csharp
+public static IApplicationBuilder UseAbpSwaggerUI(
+    this IApplicationBuilder app,
+    Action<SwaggerUIOptions>? setupAction = null)
+{
+    var resolver = app.ApplicationServices.GetService<ISwaggerHtmlResolver>();
+
+    return app.UseSwaggerUI(options =>
+    {
+        options.InjectJavascript("ui/abp.js");
+        options.IndexStream = () => resolver?.Resolver();
+        setupAction?.Invoke(options);
+    });
+}
+```
+
+Two things happen:
+
+1. `ui/abp.js` is injected; it teaches the Swagger UI client how to send the `__tenant` cookie/header from the URL so multi-tenant APIs work in the "Try it out" panel.
+2. `ISwaggerHtmlResolver` (default `SwaggerHtmlResolver`) supplies a custom `index.html` stream that pre-fills the `oauthClientId`, `oauthScopes`, and `usePkceWithAuthorizationCodeGrant` from the registered OIDC discovery — so the user doesn't have to type them in the UI.
+
+`AbpSwaggerUIOptionsExtensions.AbpAppPath(...)` (in `Microsoft/Extensions/DependencyInjection/AbpSwaggerUIOptionsExtensions.cs`) writes a small `<script>window.abp.appPath = "/"</script>` into the UI's `<head>` so the abp.js patches resolve relative URLs correctly when the Swagger UI is mounted under a path base.
+
+## AbpSwashbuckleModule
+
+`Volo/Abp/Swashbuckle/AbpSwashbuckleModule.cs` does the bare minimum: depends on `AbpAspNetCoreMvcModule`, registers `SwaggerHtmlResolver` as the default `ISwaggerHtmlResolver`, and adds the controller assembly so `AbpSwashbuckleController` becomes routable. All the real configuration is opt-in through the extension methods above.
+
+For a full minimal API setup combining bearer auth and Swagger see [Authentication](/framework/aspnetcore/authentication) and [API Versioning](/framework/aspnetcore/api-versioning).

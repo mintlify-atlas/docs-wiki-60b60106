@@ -1,0 +1,156 @@
+---
+title: "MVC UI Overview: Theming, Layouts, and the Shared Stack"
+sidebarTitle: "Overview"
+description: "How Volo.Abp.AspNetCore.Mvc.UI and Theme.Shared layer themes, layouts, alerts, and Razor Pages on top of the MVC integration."
+---
+
+`Volo.Abp.AspNetCore.Mvc.UI` is the Razor / MVC presentation layer that sits on top of the controller integration described in [MVC](/framework/aspnetcore/mvc). It introduces three core concepts — themes, layouts, and theme-shared infrastructure — and exposes the alert, page-layout, and Razor-page primitives that every MVC theme builds on. `Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared` then ships the cross-theme assets (error pages, validation scripts, common views, toolbars) that any concrete theme depends on.
+
+## The module surface
+
+`framework/src/Volo.Abp.AspNetCore.Mvc.UI/Volo/Abp/AspNetCore/Mvc/UI/AbpAspNetCoreMvcUiModule.cs`:
+
+```csharp
+[DependsOn(typeof(AbpAspNetCoreMvcModule))]
+[DependsOn(typeof(AbpUiNavigationModule))]
+public class AbpAspNetCoreMvcUiModule : AbpModule
+{
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        PreConfigure<IMvcBuilder>(mvcBuilder =>
+        {
+            mvcBuilder.AddApplicationPartIfNotExists(typeof(AbpAspNetCoreMvcUiModule).Assembly);
+        });
+    }
+
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        Configure<AbpVirtualFileSystemOptions>(options =>
+        {
+            options.FileSets.AddEmbedded<AbpAspNetCoreMvcUiModule>();
+        });
+    }
+}
+```
+
+Two responsibilities: register its assembly as an MVC application part so embedded Razor views are discoverable, and add its embedded `.cshtml`/`.css` assets to the virtual file system. Everything else — theme selection, alerts, breadcrumb model — is registered through conventional DI scanning.
+
+`AbpMvcUiOptions.cs` is the simple host-facing configuration:
+
+```csharp
+public class AbpMvcUiOptions
+{
+    public string LoginUrl  { get; set; } = "/Account/Login";
+    public string LogoutUrl { get; set; } = "/Account/Logout";
+}
+```
+
+These two URLs are what the rendered toolbar `<a href="...">Sign in</a>` link points to. Modules redirecting to login (e.g. `[Authorize]` failure) read them as well.
+
+## Themes: ITheme, IThemeManager, IThemeSelector
+
+A *theme* is a class implementing `ITheme` that maps named layouts to view paths:
+
+```csharp
+public interface ITheme
+{
+    string GetLayout(string name, bool fallbackToDefault = true);
+}
+```
+
+`StandardLayouts.cs` defines the canonical names every theme should support:
+
+| Layout name | Typical use |
+| --- | --- |
+| `StandardLayouts.Application` | Authenticated app shell with menu, toolbar, breadcrumb. |
+| `StandardLayouts.Account` | Login/Register/Forgot-password chromeless layout. |
+| `StandardLayouts.Public` | Marketing / public pages. |
+| `StandardLayouts.Empty` | No chrome (for popups, embeds). |
+
+A concrete theme decorates itself with `[ThemeName("Basic")]` (see `ThemeNameAttribute.cs`) and is registered as a transient service. For example, `modules/basic-theme/src/Volo.Abp.AspNetCore.Mvc.UI.Theme.Basic/BasicTheme.cs`:
+
+```csharp
+[ThemeName(Name)]
+public class BasicTheme : ITheme, ITransientDependency
+{
+    public const string Name = "Basic";
+
+    public virtual string GetLayout(string name, bool fallbackToDefault = true)
+    {
+        switch (name)
+        {
+            case StandardLayouts.Application: return "~/Themes/Basic/Layouts/Application.cshtml";
+            case StandardLayouts.Account:     return "~/Themes/Basic/Layouts/Account.cshtml";
+            case StandardLayouts.Empty:       return "~/Themes/Basic/Layouts/Empty.cshtml";
+            default: return fallbackToDefault ? "~/Themes/Basic/Layouts/Application.cshtml" : null;
+        }
+    }
+}
+```
+
+`AbpThemingOptions.cs` holds the registration table:
+
+```csharp
+public class AbpThemingOptions
+{
+    public ThemeDictionary Themes { get; }
+    public string? DefaultThemeName { get; set; }
+    public string? BaseUrl { get; set; }
+}
+```
+
+Themes are registered by a theme module (e.g. `AbpAspNetCoreMvcUIBasicThemeModule` calls `options.Themes.Add(new ThemeInfo(typeof(BasicTheme)))`). `BaseUrl` injects a `<base href="...">` element into the page head when set, which is required for sub-path hosting.
+
+`IThemeSelector` decides which theme is active for the current request. The default `DefaultThemeSelector` returns `Options.DefaultThemeName`'s entry — or the first registered theme if no default is named. Custom selectors can switch by user setting, host, or query string.
+
+`IThemeManager` is the consumer side:
+
+```csharp
+public interface IThemeManager
+{
+    ITheme CurrentTheme { get; }
+}
+```
+
+`DefaultThemeManager` caches the resolved theme into `HttpContext.Items["__AbpCurrentTheme"]` for the request so subsequent calls (layout discovery, view-component rendering) hit the same instance.
+
+The whole stack is read inside `_ViewStart.cshtml` of an ABP MVC project:
+
+```cshtml
+@using Volo.Abp.AspNetCore.Mvc.UI.Theming
+@inject IThemeManager ThemeManager
+@{ Layout = ThemeManager.CurrentTheme.GetLayout(StandardLayouts.Application); }
+```
+
+This indirection is what makes theme swapping trivial: a different theme module → a different layout `.cshtml` → completely different chrome, without touching feature pages.
+
+## Page layout and breadcrumbs
+
+`Layout/PageLayout.cs` and `IPageLayout.cs` expose a request-scoped `IPageLayout` carrying the current page title, breadcrumb (`BreadCrumb` / `BreadCrumbItem.cs`), and content layout (`ContentLayout.cs`). Razor pages set them in `OnGet`:
+
+```cshtml
+@inject IPageLayout PageLayout
+@{ PageLayout.Content.Title = L["Books"]; PageLayout.Content.BreadCrumb.Add(L["Books"]); }
+```
+
+The layout view component then renders them inside the shared chrome.
+
+## AbpPage / AbpPageModel
+
+`RazorPages/AbpPage.cs` and `AbpPageModel.cs` are base classes that mirror `AbpController` from the MVC integration — they inject `L` (string localizer), `Logger`, `CurrentUser`, `CurrentTenant`, etc., through the `IAbpLazyServiceProvider` pattern so Razor pages enjoy the same convenience as controllers. `ServiceBasedPageModelActivatorProvider` plugs them into MVC's page model activator so DI resolution works.
+
+## Alerts
+
+`Alerts/AlertManager.cs` (implementing `IAlertManager`) holds an `AlertList` for the current request. Code can write `AlertManager.Alerts.Add(AlertType.Success, "Saved")`; the theme renders any pending alerts at the top of the page. The Blazor parallel (`Volo.Abp.AspNetCore.Components.Alerts.AlertManager`) shares the same `AlertList`/`AlertType`/`AlertMessage` model, which is why a server-rendered MVC page and a Blazor component can present alerts the same way.
+
+## Theme.Shared: cross-theme assets
+
+`framework/src/Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared/` (`AbpAspNetCoreMvcUiThemeSharedModule.cs`) is the assembly every concrete theme depends on. It contributes:
+
+- The shared error pages (`Views/Error/...`) and `AbpErrorPageOptions.cs` (which exceptions get which status code).
+- Antiforgery, validation, and core JS/CSS contributors (`Bundling/`).
+- The toolbar abstractions (`Toolbars/`) that themes extend — both the main top toolbar and the page-toolbar primitives in `PageToolbars/`.
+- The `AbpApplicationBuilderErrorPageExtensions.UseErrorPage()` helper that wires `app.UseExceptionHandler("/Error")` to the shared views.
+- Controllers under `Controllers/` — e.g. `AbpRouteController` used by the JavaScript proxy to call back into the framework.
+
+Read [Themes](/framework/ui-mvc/themes) for how a concrete theme is structured, [Bootstrap Tag Helpers](/framework/ui-mvc/bootstrap-tag-helpers) for the rendering primitives the layouts use, and [Navigation](/framework/ui-mvc/navigation) for menu contributors that the application layout consumes.

@@ -1,0 +1,59 @@
+---
+title: "TickerQ Provider for Background Jobs and Workers"
+sidebarTitle: "TickerQ"
+description: "TickerQ-backed background jobs and workers with EF Core persistence, time-tickers for one-shots, and cron-tickers for periodic execution."
+---
+
+[TickerQ](https://tickerq.arcenox.com/) is a lightweight scheduler with optional EF Core persistence. ABP wires it in through three packages: `Volo.Abp.TickerQ` (scheduler bootstrap), `Volo.Abp.BackgroundJobs.TickerQ`, and `Volo.Abp.BackgroundWorkers.TickerQ`.
+
+## Scheduler bootstrap
+
+`AbpTickerQModule` calls `AddTickerQ` and tags the scheduler node with the application name so multiple replicas can co-exist.
+
+```csharp framework/src/Volo.Abp.TickerQ/Volo/Abp/TickerQ/AbpTickerQModule.cs
+context.Services.AddTickerQ(options =>
+{
+    options.ConfigureScheduler(scheduler =>
+    {
+        scheduler.NodeIdentifier = context.Services.GetApplicationName();
+    });
+});
+```
+
+`AbpTickerQApplicationBuilderExtensions` starts the host pipeline and `AbpTickerQFunctionProvider` materializes the named functions that TickerQ invokes.
+
+## AbpTickerQBackgroundJobManager
+
+`AbpTickerQBackgroundJobManager` replaces `IBackgroundJobManager`. Each enqueue inserts a `TimeTickerEntity` whose `Function` is the registered job name and whose `ExecutionTime` is `UtcNow + delay`.
+
+```csharp framework/src/Volo.Abp.BackgroundJobs.TickerQ/Volo/Abp/BackgroundJobs/TickerQ/AbpTickerQBackgroundJobManager.cs
+var timeTicker = new TimeTickerEntity
+{
+    Id = Guid.NewGuid(),
+    Function = job.JobName,
+    ExecutionTime = delay == null ? DateTime.UtcNow : DateTime.UtcNow.Add(delay.Value),
+    Request = TickerHelper.CreateTickerRequest<TArgs>(args),
+};
+```
+
+Per-job retry/concurrency settings live in `AbpBackgroundJobsTickerQOptions` keyed by job type; if present, `Retries`, `RetryIntervals`, and `RunCondition` from `AbpBackgroundJobsTimeTickerConfiguration` are copied onto the ticker.
+
+## Periodic workers
+
+`AbpTickerQBackgroundWorkerManager` adapts ABP periodic workers onto TickerQ cron-tickers. The `Period` (in ms) is translated to a cron expression by `GetCron`:
+
+```csharp framework/src/Volo.Abp.BackgroundWorkers.TickerQ/Volo/Abp/BackgroundWorkers/TickerQ/AbpTickerQBackgroundWorkerManager.cs
+if (time.TotalMinutes < 60) return $"*/{minutes} * * * *";
+if (time.TotalHours < 24)   return $"0 */{hours} * * *";
+if (time.TotalDays <= 31)   return $"0 0 */{days} * *";
+```
+
+If the worker exposes a `CronExpression` directly that value wins. `AbpTickerQFunctionProvider.AddFunction` then registers an async delegate that resolves a fresh scope and invokes `AbpTickerQPeriodicBackgroundWorkerInvoker` per tick.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Background Jobs" icon="briefcase" href="/framework/background/background-jobs" />
+  <Card title="Background Workers" icon="repeat" href="/framework/background/background-workers" />
+  <Card title="Quartz" icon="clock" href="/framework/background/quartz" />
+</CardGroup>

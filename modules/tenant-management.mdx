@@ -1,0 +1,99 @@
+---
+title: "Tenant Management: Tenants and Per-Tenant Connection Strings"
+sidebarTitle: "Tenant Management"
+description: "The Tenant aggregate, TenantConnectionString collection, and TenantManager / ITenantRepository that drive ABP's multi-tenancy persistence."
+---
+
+The Tenant Management module persists the **tenants** of an ABP multi-tenant application. It owns the `Tenant` aggregate plus the per-tenant connection-string collection that ABP's connection-string resolver uses to route each tenant's data to its own database when running in *database-per-tenant* or *hybrid* mode.
+
+Source under `/home/daytona/repos/abpframework/abp/modules/tenant-management/src/`:
+
+| Project | Purpose |
+| --- | --- |
+| `Volo.Abp.TenantManagement.Domain.Shared` | Consts, error codes |
+| `Volo.Abp.TenantManagement.Domain` | `Tenant`, `TenantConnectionString`, `TenantManager`, repositories |
+| `Volo.Abp.TenantManagement.Application(.Contracts)` | `ITenantAppService` + DTOs |
+| `Volo.Abp.TenantManagement.HttpApi(.Client)` | REST controllers + proxies |
+| `Volo.Abp.TenantManagement.EntityFrameworkCore` / `.MongoDB` | Persistence |
+| `Volo.Abp.TenantManagement.Web` / `.Blazor*` | Tenant management UI |
+| `Volo.Abp.TenantManagement.Installer` | CLI installer payload |
+
+## Aggregate
+
+`Volo.Abp.TenantManagement.Domain/Volo/Abp/TenantManagement/Tenant.cs`:
+
+```csharp
+public class Tenant : FullAuditedAggregateRoot<Guid>, IHasEntityVersion
+{
+    public virtual string Name           { get; protected set; }
+    public virtual string NormalizedName { get; protected set; }
+    public virtual int    EntityVersion  { get; protected set; }
+    public virtual List<TenantConnectionString> ConnectionStrings { get; protected set; }
+
+    public virtual string FindDefaultConnectionString()
+        => FindConnectionString(Data.ConnectionStrings.DefaultConnectionStringName);
+
+    public virtual string FindConnectionString(string name)
+        => ConnectionStrings.FirstOrDefault(c => c.Name == name)?.Value;
+}
+```
+
+A tenant can have multiple connection strings (one per `IConnectionStringResolver` name — e.g. `"Default"`, `"Identity"`, `"Audit"`). `TenantConnectionString.cs` is the child entity:
+
+```csharp
+public class TenantConnectionString : Entity
+{
+    public virtual Guid   TenantId { get; protected set; }
+    public virtual string Name     { get; protected set; }
+    public virtual string Value    { get; protected set; }
+}
+```
+
+Max lengths are enforced via `TenantConnectionStringConsts`. The pair `(TenantId, Name)` is the natural key.
+
+## Repository
+
+`ITenantRepository.cs`:
+
+```csharp
+public interface ITenantRepository : IBasicRepository<Tenant, Guid>
+{
+    Task<Tenant>       FindByNameAsync(string normalizedName, bool includeDetails = true, CancellationToken ct = default);
+    Task<List<Tenant>> GetListAsync   (string sorting = null, int maxResultCount = int.MaxValue, int skipCount = 0, string filter = null, bool includeDetails = false, CancellationToken ct = default);
+    Task<long>         GetCountAsync  (string filter = null, CancellationToken ct = default);
+}
+```
+
+EF Core and MongoDB implementations live in the matching persistence projects.
+
+## `TenantManager`
+
+`TenantManager.cs` is a `DomainService` that owns invariants and emits domain events:
+
+```csharp
+public virtual async Task<Tenant> CreateAsync(string name)
+{
+    var tenant = new Tenant(GuidGenerator.Create(), name, TenantNormalizer.NormalizeName(name));
+    await TenantValidator.ValidateAsync(tenant);
+    return tenant;
+}
+
+public virtual async Task ChangeNameAsync(Tenant tenant, string name)
+{
+    await LocalEventBus.PublishAsync(new TenantChangedEvent(tenant.Id, tenant.NormalizedName));
+    tenant.SetName(name);
+    tenant.SetNormalizedName(TenantNormalizer.NormalizeName(name));
+    await TenantValidator.ValidateAsync(tenant);
+}
+```
+
+`ITenantNormalizer` upper-cases the name into `NormalizedName` for unique lookup, `AbpTenantValidator` checks length and uniqueness, and `TenantChangedEvent` lets dependent caches (e.g. `TenantConfigurationCacheItemInvalidator`) flush stale data.
+
+## Tenant resolution
+
+The framework-level `Volo.Abp.MultiTenancy` package resolves the current tenant from cookies, headers, host names, etc., and asks `ITenantStore` for its configuration. `TenantStore.cs` in this module implements `ITenantStore` on top of `ITenantRepository`, exposing `(Id, Name, ConnectionStrings)` so the connection-string resolver can pick the right DB for the request.
+
+## Related
+
+- [Identity](/modules/identity) — users and roles are `IMultiTenant`, keyed on `Tenant.Id`.
+- [Permission Management](/modules/permission-management) / [Feature Management](/modules/feature-management) / [Setting Management](/modules/setting-management) — all use tenant id as a value-provider key.

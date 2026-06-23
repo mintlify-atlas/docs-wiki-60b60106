@@ -1,0 +1,110 @@
+---
+title: "Build & Deploy Scripts: Complete ABP Inventory"
+sidebarTitle: "Scripts"
+description: "Every PowerShell entry point in the ABP repo — build/test in /build, pack/push in /nupkg, the eight numbered release steps in /deploy, and helper tools."
+---
+
+The ABP monorepo ships a stack of PowerShell scripts that automate everything from a developer-mode dotnet build through a full coordinated release: build all solutions, run all tests, pack hundreds of NuGets, push them to nuget.org with rate-limit awareness, version-bump and publish the MVC and Angular npm packs, tag GitHub, and download the release zip to the build server. This page enumerates them so you can find the one you need.
+
+## `/build/` — dotnet build/test
+
+| Script | Location | Purpose |
+| --- | --- | --- |
+| `build-all.ps1` | `/build/build-all.ps1` | `dotnet build` of every solution in `common.ps1`'s `$solutionPaths`. Pass `-f` (`$args[0] = "-f"`) for "full" mode (adds templates, blogging, docs, abp_io, source-code; on Windows also `templates/wpf`). |
+| `build-all-release.ps1` | `/build/build-all-release.ps1` | Like `build-all.ps1` but `dotnet build --configuration Release -- /maxcpucount`. Always full mode. Used by `deploy/1-fetch-and-build.ps1`. |
+| `test-all.ps1` | `/build/test-all.ps1` | `dotnet test --no-build --no-restore --collect:"XPlat Code Coverage"` over each solution. Same `$solutionPaths` selection as `build-all.ps1`. |
+| `common.ps1` | `/build/common.ps1` | Defines `$rootFolder` and `$solutionPaths`. Default list: framework + basic-theme, users, permission-management, setting-management, feature-management, identity, identityserver, openiddict, tenant-management, audit-logging, background-jobs, account, cms-kit, blob-storing-database. With `-f`: also client-simulation, virtual-file-explorer, docs, blogging, templates/module, templates/app, templates/console, templates/app-nolayers, abp_io/AbpIoLocalization, source-code. |
+
+```powershell
+# typical dev loop
+cd build
+.\build-all.ps1        # incremental, dev mode (no templates)
+.\test-all.ps1         # test everything that was built
+.\build-all.ps1 -f     # full mode incl. templates
+```
+
+The CI workflow (`.github/workflows/build-and-test.yml`) shells out to `./build-all.ps1` from `./build` on `ubuntu-22.04` after installing `powershell` and `dotnet-version: 10.0.x`.
+
+## `/nupkg/` — packaging and pushing
+
+| Script | Location | Purpose |
+| --- | --- | --- |
+| `common.ps1` | `/nupkg/common.ps1` | Defines `$packFolder`, `$rootFolder`, `Write-Info`/`Write-Error`/`Read-File` helpers, and the master `$solutions` (19 module solutions) and `$projects` (every NuGet project path) lists. |
+| `pack.ps1` | `/nupkg/pack.ps1` | Deletes existing `*.nupkg`, restores every solution, then `dotnet pack -c Release --no-build /maxcpucount` for every project in `$projects` and moves the produced nupkg into `/nupkg/`. |
+| `push_packages.ps1` | `/nupkg/push_packages.ps1` | Pushes every `<project>.<version>.nupkg` to `https://api.nuget.org/v3/index.json`. Sliding-window rate limiter (`$maxPushesPerHour=250`), three-retry policy on 4xx with `Retry-After` parsing, writes `failed-packages.txt` for re-runs. |
+| `push-nightly-packages-myget.ps1` | `/nupkg/push-nightly-packages-myget.ps1` | Nightly variant pushing to the MyGet preview feed. |
+| `unit_test.ps1` | `/nupkg/unit_test.ps1` | Local script that builds + tests before packing. |
+| `common.ps1.bak` | `/nupkg/common.ps1.bak` | Backup of the previous `$projects` list — not part of the build pipeline. |
+| `0` | `/nupkg/0` | Empty marker file used by some scripts. |
+
+Reading `$nugetUrl = "https://api.nuget.org/v3/index.json"` from `push_packages.ps1` confirms NuGet.org is the only push target; the API key is read from `nuget-api-key.txt` if present, otherwise prompted.
+
+## `/deploy/` — coordinated release
+
+| Script | Location | Purpose |
+| --- | --- | --- |
+| `_run_all.ps1` | `/deploy/_run_all.ps1` | Orchestrator. Asks for `$branch`, `$newVersion`, `$isRcVersion`, transcripts to `_run_all_log.txt`, then sequentially runs steps 1→8. |
+| `1-fetch-and-build.ps1` | `/deploy/1-fetch-and-build.ps1` | `git switch $branch && git pull`. If `$newVersion ≠ $currentVersion`, rewrites `<Version>` in `common.props` via XML. Then `cd build && .\build-all-release.ps1`. |
+| `2-nuget-pack.ps1` | `/deploy/2-nuget-pack.ps1` | Wrapper that `cd`s into `nupkg/` and runs `pack.ps1`. |
+| `3-nuget-push.ps1` | `/deploy/3-nuget-push.ps1` | Reads API key (from `nuget-api-key.txt` or prompt), runs `nupkg/push_packages.ps1 $nugetApiKey`. |
+| `4-npm-publish-mvc.ps1` | `/deploy/4-npm-publish-mvc.ps1` | Reads npm auth token, `npm set //registry.npmjs.org/:_authToken`, then `cd ../npm && powershell -File publish-mvc.ps1`. |
+| `5-npm-publish-angular.ps1` | `/deploy/5-npm-publish-angular.ps1` | Same shape as step 4 but runs `npm/publish-ng.ps1` (Lerna-based Angular packs). |
+| `6-git-commit.ps1` | `/deploy/6-git-commit.ps1` | `git add . && git commit -m Update_NPM_Package_Versions && git push`. |
+| `7-publish-github-release.ps1` | `/deploy/7-publish-github-release.ps1` | POSTs to `https://api.github.com/repos/abpframework/abp/releases` with `tag_name=$version`, `target_commitish=$branchName`, `prerelease=$preRelease`. Basic-auth uses API key from `github-api-key.txt`. |
+| `8-download-release-zip.ps1` | `/deploy/8-download-release-zip.ps1` | SSH'es into the Natro build server via `plink.exe -ssh jenkins@94.73.164.234` and runs `c:\ci\scripts\download-latest-abp-release.ps1 $version` so the next CI mirrors the GitHub zip. |
+| `new-github-release-function.psm1` | `/deploy/new-github-release-function.psm1` | Helper PowerShell module imported by step 7. |
+| `plink.exe` | `/deploy/plink.exe` | PuTTY's SSH client, bundled so step 8 works on Windows without an external dep. |
+| `readme.md` | `/deploy/readme.md` | Operator's runbook. |
+
+The orchestrator chains them like this:
+
+```powershell
+# /deploy/_run_all.ps1 (excerpt)
+./1-fetch-and-build.ps1 $branch $newVersion
+./2-nuget-pack.ps1
+./3-nuget-push.ps1
+./4-npm-publish-mvc.ps1
+./5-npm-publish-angular.ps1
+./6-git-commit.ps1
+./7-publish-github-release.ps1 @publishGithubReleaseParams
+./8-download-release-zip.ps1
+```
+
+Every step writes to `_run_all_log.txt` via `Start-Transcript -Append`. Re-running on failure resumes from the next step manually.
+
+## `/npm/` — JS package publishers
+
+| Script | Location | Purpose |
+| --- | --- | --- |
+| `publish-mvc.ps1` | `/npm/publish-mvc.ps1` | Lerna `version` bump (`--no-commit-hooks --no-git-tag-version --force-publish`), `yarn replace-with-tilde`, `validate-versions`, then `npm run lerna -- exec 'npm publish --registry $Registry'`. Prerelease detection adds `--tag next`. |
+| `publish-ng.ps1` | `/npm/publish-ng.ps1` | Angular variant — `cd ng-packs`, `yarn update-version`, `npm run publish-packages --nextVersion $Version --skipGit --registry $Registry --skipVersionValidation`, also runs `yarn update-gulp` and `yarn update-lepton-x-versions -v $LeptonXVersion`. |
+| `preview-publish.ps1` | `/npm/preview-publish.ps1` | Local "publish to a private registry" rehearsal. |
+| `packs/npm-check-updates.ps1` | `/npm/packs/npm-check-updates.ps1` | Convenience wrapper to run `npm-check-updates` across all sub-packages. |
+
+## `/tools/` — auxiliary tooling
+
+| Tool | Location | Purpose |
+| --- | --- | --- |
+| `github-changelog-generator/` | `/tools/github-changelog-generator/` | Pre-built `generator.exe` with `config.yaml` and source for producing release notes. |
+| `localization-key-synchronizer/` | `/tools/localization-key-synchronizer/` | `LocalizationKeySynchronizer.exe` plus `LocalizationKeySynchronizer.slnx` source — keeps all `*.json` localization files in sync against the English master. |
+| `nuget/nuget.exe` | `/tools/nuget/nuget.exe` | Bundled `nuget.exe` for environments without `dotnet pack`. |
+| `smtp-prober-email-sender.exe` | `/tools/smtp-prober-email-sender.exe` | One-shot SMTP test utility used by ops. |
+
+## `/` — root-level helpers
+
+| Script | Location | Purpose |
+| --- | --- | --- |
+| `delete-bin-obj.ps1` | `/delete-bin-obj.ps1` | Recursive delete of every `bin/` and `obj/` directory in the repo — last-resort "clean". |
+
+## What's documented elsewhere
+
+- `templates/zip-templates.ps1`, `templates/app/angular/start.ps1`, etc. are documented under the [Templates](/templates) section, not here, because they target the consumer-side template projects rather than the framework build.
+- `modules/blogging/app/update-database.ps1` belongs to one module and is covered in its own page.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Build Overview" href="/build/overview">The props/SDK conventions the scripts assume.</Card>
+  <Card title="NuGet & npm" href="/build/nuget-and-npm">Detailed pack/push flow.</Card>
+  <Card title="GitHub Workflows" href="/build/github-workflows">CI that invokes these scripts.</Card>
+</CardGroup>

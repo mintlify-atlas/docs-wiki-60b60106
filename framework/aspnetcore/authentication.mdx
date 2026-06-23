@@ -1,0 +1,101 @@
+---
+title: "Authentication Schemes: JWT Bearer, OAuth, OpenID Connect"
+sidebarTitle: "Authentication"
+description: "ABP's AddAbpJwtBearer, AddAbpOpenIdConnect, and OAuth claim-mapping extensions: what they wrap, the events they hook, and how each scheme integrates."
+---
+
+ABP does not replace ASP.NET Core's authentication stack. Each of the three packages under `framework/src/Volo.Abp.AspNetCore.Authentication.*` is a thin wrapper around the equivalent Microsoft handler — `JwtBearer`, `OAuth`, and `OpenIdConnect` — that adds two specific concerns: surfacing ABP's `AbpAspNetCoreTokenUnauthorizedErrorInfo` to the client, and mapping inbound claims onto the canonical names that the rest of the framework reads through `AbpClaimTypes` and `ICurrentUser`.
+
+All three packages depend on `AbpAspNetCoreAbstractionsModule` so they share the `AbpAspNetCoreTokenUnauthorizedErrorInfo` request-scoped service (`framework/src/Volo.Abp.AspNetCore.Abstractions/Volo/Abp/AspNetCore/Authentication/AbpAspNetCoreTokenUnauthorizedErrorInfo.cs`). When any module rejects an access token (expired, audience mismatch, missing required claim), it writes `Error`, `ErrorDescription`, and `ErrorUri` into this object; the handler's `OnChallenge` event then copies those into the `WWW-Authenticate` header so the caller sees the real reason.
+
+## Schemes at a glance
+
+| Scheme constant | Extension method | Source file | Purpose |
+| --- | --- | --- | --- |
+| `JwtBearerDefaults.AuthenticationScheme` ("Bearer") | `AddAbpJwtBearer` | `Volo.Abp.AspNetCore.Authentication.JwtBearer/Microsoft/Extensions/DependencyInjection/AbpJwtBearerExtensions.cs` | API-style bearer validation. |
+| Any (built on top of OAuth handler) | `MapAbpClaimTypes` on `ClaimActionCollection` | `Volo.Abp.AspNetCore.Authentication.OAuth/Microsoft/AspNetCore/Authentication/OAuth/Claims/AbpClaimActionCollectionExtensions.cs` | Claim translation for any OAuth-based handler. |
+| `OpenIdConnectDefaults.AuthenticationScheme` ("OpenIdConnect") | `AddAbpOpenIdConnect` | `Volo.Abp.AspNetCore.Authentication.OpenIdConnect/Microsoft/Extensions/DependencyInjection/AbpOpenIdConnectExtensions.cs` | Interactive OIDC flow with tenant/culture relay. |
+| Cookie + JWT pass-through | `UseJwtTokenMiddleware(scheme)` | `Volo.Abp.AspNetCore.Authentication.JwtBearer/Microsoft/AspNetCore/Builder/ApplicationBuilderAbpJwtTokenMiddlewareExtension.cs` | Promotes a bearer token to `HttpContext.User` even when cookie auth is the primary scheme. |
+
+## AddAbpJwtBearer
+
+The default overload is one line:
+
+```csharp
+services.AddAuthentication()
+    .AddAbpJwtBearer(options =>
+    {
+        options.Authority = configuration["AuthServer:Authority"];
+        options.Audience  = configuration["AuthServer:Audience"];
+    });
+```
+
+Internally the helper does three things (see `AbpJwtBearerExtensions.cs`):
+
+1. **Refresh-URL stitching** — if `JwtBearerOptions.Authority` is set, it appends the configured `AbpClaimsPrincipalFactoryOptions.RemoteRefreshUrl` to the authority. The dynamic-claims subsystem uses that URL to refresh claims without re-issuing the JWT.
+2. **Delegates to `AddJwtBearer`** — the underlying registration is unchanged. Any property you set in the lambda (`TokenValidationParameters`, `Authority`, `BackchannelHttpHandler`, etc.) takes effect verbatim.
+3. **Wraps `OnChallenge`** — after the user's existing `OnChallenge` runs, if the challenge has not already been short-circuited and no error fields are set, it copies `AbpAspNetCoreTokenUnauthorizedErrorInfo.Error`, `.ErrorDescription`, `.ErrorUri` from the request-scoped service onto the challenge context so they end up in the `WWW-Authenticate` response.
+
+The companion `UseJwtTokenMiddleware(...)` extension is for hosts that primarily use cookie auth but also accept JWT-bearing API calls. It checks `ctx.User.Identity.IsAuthenticated` and if false, calls `AuthenticateAsync(scheme)` and replaces `ctx.User` with the result.
+
+## OAuth claim mapping
+
+The OAuth package is small but important. `AbpAspNetCoreAuthenticationOAuthModule` simply re-maps `ClaimAction`s. The extension `ClaimActions.MapAbpClaimTypes()` (in `AbpClaimActionCollectionExtensions.cs`) registers `MultipleClaimAction` and `RemoveDuplicateClaimAction` instances so that:
+
+- `sub`, `name`, `email`, `phone_number`, `email_verified`, `phone_number_verified`, `role`, `tenantid`, `editionid`, `clientid`, `impersonatortenantid`, `impersonatoruserid`, etc. — all land on the corresponding `AbpClaimTypes.*` constants regardless of how the upstream IdP names them.
+- Duplicate claims (a JWT issued with multiple roles often emits multiple `role` entries) are deduplicated by `RemoveDuplicateClaimAction`.
+
+This is what makes `ICurrentUser.Id`, `.TenantId`, `.Email`, `.Roles` return values consistently no matter which IdP issued the token.
+
+## AddAbpOpenIdConnect
+
+This is the heaviest of the three because OIDC has the most moving parts. The helper:
+
+1. Pre-configures `AbpClaimsPrincipalFactoryOptions.RemoteRefreshUrl` from the IdP authority (same logic as JWT).
+2. Calls `AddOpenIdConnect(...)` with `options.ClaimActions.MapAbpClaimTypes()` already wired in — claim translation is on by default.
+3. Composes new `OpenIdConnectEvents` on top of any user-supplied events:
+   - `OnAuthorizationCodeReceived` — reads `__tenant` cookie via `AbpAspNetCoreMultiTenancyOptions.TenantKey` and replays it into the token-endpoint request so the IdP can resolve the tenant.
+   - `OnTokenValidated` — resolves `IOpenIdLocalUserCreationClient` (default: `OpenIdLocalUserCreationClient`) and calls `CreateOrUpdateAsync(context)` to materialise a local user record from the external identity. The client is configured by `OpenIdLocalUserCreationClientOptions` (e.g. whether to copy phone numbers, whether to confirm email automatically).
+   - Same `OnTokenValidated` also reads the `culture` / `ui-culture` parameters from the OIDC response and persists them via `AbpRequestCultureCookieHelper.SetCultureCookie(...)`, so language preferences survive the login redirect.
+4. Sets `AccessDeniedPath = "/"` and disables `PushedAuthorizationBehavior` by default (`PushedAuthorizationBehavior.Disable`) — PAR requires an explicit grant on the OpenIddict side.
+
+Local user provisioning is dependency-injectable: replace `IOpenIdLocalUserCreationClient` to alter how external accounts are mapped to local users.
+
+## Composing schemes
+
+A typical web host registers cookie + OIDC together, while an API host uses bearer:
+
+```csharp
+services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = "Cookies";
+        options.DefaultChallengeScheme = "oidc";
+    })
+    .AddCookie("Cookies")
+    .AddAbpOpenIdConnect("oidc", options =>
+    {
+        options.Authority = configuration["AuthServer:Authority"];
+        options.ClientId  = configuration["AuthServer:ClientId"];
+        options.ClientSecret = configuration["AuthServer:ClientSecret"];
+        options.ResponseType = "code";
+        options.SaveTokens = true;
+    });
+```
+
+```csharp
+// API host
+services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddAbpJwtBearer(options =>
+    {
+        options.Authority = configuration["AuthServer:Authority"];
+        options.Audience  = "MyApi";
+    });
+```
+
+The cookie scheme can be made ABP-aware via `CookieAuthenticationOptionsExtensions` (in `Volo.Abp.AspNetCore/Microsoft/Extensions/DependencyInjection/`), which wires the cookie's `OnSigningOut` event into the dynamic-claims cache.
+
+## Where to read next
+
+- `framework/src/Volo.Abp.AspNetCore.Authentication.JwtBearer/Volo/Abp/AspNetCore/Authentication/JwtBearer/DynamicClaims/` — the cache that backs `RemoteRefreshUrl` (`WebRemoteDynamicClaimsPrincipalContributor`, `WebRemoteDynamicClaimsPrincipalContributorOptions`, `WebRemoteDynamicClaimsPrincipalContributorCache`).
+- [HTTP / Identity Model](/framework/http/identity-model) — `IdentityModelAuthenticationService` that issues bearer tokens from server-side HTTP clients.
+- [Swashbuckle](/framework/aspnetcore/swashbuckle) — `AddAbpSwaggerGenWithOidc` for matching the OIDC scheme configured above.

@@ -1,0 +1,41 @@
+---
+title: "Virtual File Explorer: Browse Embedded VFS at Runtime"
+sidebarTitle: "VFS Explorer"
+description: "Razor Pages UI that lets developers browse the ABP Virtual File System — embedded views, JS, CSS — directly from a running application."
+---
+
+The Virtual File Explorer is a developer-facing module that exposes ABP's [Virtual File System](/framework/cross-cutting/virtual-file-system) through a permission-gated Razor Pages UI. It is invaluable when debugging which embedded assets a module actually ships, or which one wins after an `Override`. Source lives under `/home/daytona/repos/abpframework/abp/modules/virtual-file-explorer/src/`.
+
+## Packages
+
+| Package | Purpose |
+| --- | --- |
+| `Volo.Abp.VirtualFileExplorer.Contracts` | Permission definition (`VirtualFileExplorerPermissions.View`), localization resource |
+| `Volo.Abp.VirtualFileExplorer.Web` | Razor Pages UI, menu contributor, Prismjs bundle extensions |
+| `Volo.Abp.VirtualFileExplorer.Installer` | CLI installer module |
+
+## How it works
+
+`IndexModel` (`modules/virtual-file-explorer/src/Volo.Abp.VirtualFileExplorer.Web/Pages/VirtualFileExplorer/Index.cshtml.cs`) injects the framework's `IVirtualFileProvider` and lists the contents of a given path:
+
+```csharp
+[Authorize(VirtualFileExplorerPermissions.View)]
+public class IndexModel : VirtualFileExplorerPageModel
+{
+    [BindProperty(SupportsGet = true)] public string Path { get; set; } = "/";
+
+    public IActionResult OnGet()
+    {
+        var query = VirtualFileProvider.GetDirectoryContents(Path)
+            .Where(d => VirtualFileExplorerConsts.AllowFileInfoTypes.Contains(d.GetType().Name))
+            .OrderByDescending(f => f.IsDirectory).ToList();
+        // ...paging, breadcrumb, set view model
+    }
+}
+```
+
+`FileContentModal.cshtml.cs` opens a single file's content in a modal — `PrismjsScriptBundleContributorDocsExtension` and `PrismjsStyleBundleContributorDocsExtension` add Prism for syntax highlighting. `VirtualFileExplorerMenuContributor` plugs the page into the host's admin menu under the name defined by `VirtualFileExplorerMenuNames`.
+
+Access is gated by `VirtualFileExplorerPermissions.View` (declared in `AbpVirtualFileExplorerPermissionDefinitionProvider`), so grant it only to administrators or developers — the explorer can read **any** virtual file embedded in any loaded module, including configuration templates and localization JSON.
+
+See also: [/framework/cross-cutting/virtual-file-system](/framework/cross-cutting/virtual-file-system) for the underlying provider API and embedded-resource conventions, and [/modules/permission-management](/modules/permission-management) for granting `VirtualFileExplorer.View`.

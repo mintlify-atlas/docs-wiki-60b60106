@@ -1,0 +1,82 @@
+---
+title: "MAUI Blazor Hybrid: Native Accessors and Config Cache"
+sidebarTitle: "MAUI"
+description: "AbpAspNetCoreComponentsMauiBlazorModule, AbpMauiClientModule, native current-principal/tenant accessors, and the MAUI configuration cache."
+---
+
+`Volo.Abp.AspNetCore.Components.MauiBlazor` and its sibling `Volo.Abp.Maui.Client` adapt the Blazor component stack to a MAUI Blazor Hybrid host. The challenge is that MAUI runs Razor components inside a `BlazorWebView` rather than in a browser, so primitives like cookies, `HttpContext`, and the WASM authentication state provider do not exist — but the rest of the framework (component base, application configuration, current user/tenant) must keep working unchanged.
+
+## Two packages, two roles
+
+- `Volo.Abp.AspNetCore.Components.MauiBlazor` (`framework/src/Volo.Abp.AspNetCore.Components.MauiBlazor/`) — the Blazor-side module. Depends on `AbpAspNetCoreComponentsWebModule`, ships native-aware accessor implementations.
+- `Volo.Abp.Maui.Client` (`framework/src/Volo.Abp.Maui.Client/`) — the MAUI-host-side module, intended to be referenced by the .NET MAUI project root. Initialises the application configuration cache before the BlazorWebView starts rendering.
+
+## AbpAspNetCoreComponentsMauiBlazorModule
+
+```csharp
+[DependsOn(
+    typeof(AbpAspNetCoreMvcClientCommonModule),
+    typeof(AbpUiModule),
+    typeof(AbpAspNetCoreComponentsWebModule)
+)]
+public class AbpAspNetCoreComponentsMauiBlazorModule : AbpModule
+{
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        PreConfigure<AbpHttpClientBuilderOptions>(options =>
+        {
+            options.ProxyClientBuildActions.Add((_, builder) =>
+            {
+                builder.AddHttpMessageHandler<AbpMauiBlazorClientHttpMessageHandler>();
+            });
+        });
+    }
+
+    public override async Task OnApplicationInitializationAsync(ApplicationInitializationContext context)
+    {
+        await context.ServiceProvider.GetRequiredService<IClientScopeServiceProviderAccessor>()
+            .ServiceProvider.GetRequiredService<MauiBlazorCachedApplicationConfigurationClient>()
+            .InitializeAsync();
+        await context.ServiceProvider.GetRequiredService<IClientScopeServiceProviderAccessor>()
+            .ServiceProvider.GetRequiredService<AbpComponentsClaimsCache>().InitializeAsync();
+        await SetCurrentLanguageAsync(context.ServiceProvider);
+    }
+}
+```
+
+`AbpMauiBlazorClientHttpMessageHandler.cs` is the MAUI counterpart of `AbpBlazorClientHttpMessageHandler` (see [WebAssembly](/framework/blazor/webassembly)). It reads the cached principal and tenant from the native MAUI side rather than from the browser.
+
+`SetCurrentLanguageAsync` repeats the WebAssembly trick: read the resolved culture from the configuration response, assign it to `CultureInfo.DefaultThreadCurrentCulture`, and inject `body.rtl` via `IAbpUtilsService` when the culture is right-to-left.
+
+## Native accessors
+
+Files in the `MauiBlazor` namespace replace the web-shaped defaults:
+
+- `MauiBlazorCurrentPrincipalAccessor.cs` — implements `ICurrentPrincipalAccessor` against a native principal store (set when the user signs in through the platform-specific identity provider).
+- `MauiBlazorCurrentTenantAccessor.cs` — implements `ICurrentTenantAccessor`.
+- `MauiBlazorCurrentTimezoneProvider.cs` + `MauiBlazorCurrentTimezoneService.cs` — read the device's system timezone.
+- `MauiBlazorRemoteTenantStore.cs` — replaces the cookie/header-based tenant store with one that persists per-app.
+- `MauiBlazorServerUrlProvider.cs` — returns the configured remote API URL (no relative URLs work in MAUI; everything is absolute).
+- `IMauiBlazorSelectedLanguageProvider.cs` / `NullMauiBlazorSelectedLanguageProvider.cs` — the platform-specific "preferred language" lookup hook; the platform-specific MAUI project provides a real implementation.
+
+These accessors are what allow `AbpComponentBase.CurrentUser` and `.CurrentTenant` to keep working in MAUI Blazor without the component knowing the host changed.
+
+## AbpMauiClientModule
+
+`Volo.Abp.Maui.Client/Volo/Abp/Maui/Client/AbpMauiClientModule.cs`:
+
+```csharp
+[DependsOn(typeof(AbpAspNetCoreMvcClientCommonModule))]
+public class AbpMauiClientModule : AbpModule
+{
+    public async Task OnApplicationInitializationAsync(ApplicationInitializationContext context)
+    {
+        await context.ServiceProvider.GetRequiredService<IClientScopeServiceProviderAccessor>()
+            .ServiceProvider.GetRequiredService<MauiCachedApplicationConfigurationClient>().InitializeAsync();
+    }
+}
+```
+
+This is the module a MAUI application module typically `[DependsOn(...)]`s when it does *not* render Razor components (e.g. a pure native shell that calls ABP HTTP APIs). It ensures `MauiCachedApplicationConfigurationClient` fetches and caches the `/api/abp/application-configuration` payload so native screens can read settings and permissions through the same `ICachedApplicationConfigurationClient` abstraction the Blazor side uses.
+
+For the broader Blazor architecture and parallel hosts see [Blazor Overview](/framework/blazor/overview).

@@ -1,0 +1,132 @@
+---
+title: "Remote Services: Named Endpoint Configuration"
+sidebarTitle: "Remote Services"
+description: "AbpRemoteServiceOptions, RemoteServiceConfiguration, and the tenant-aware provider that resolves base URLs for HTTP client proxies."
+---
+
+Almost every outbound HTTP call ABP makes — dynamic proxy, static proxy, identity-model authenticator, integration controller — funnels through a *named* `RemoteServiceConfiguration`. The configuration is the answer to two questions: where does this remote service live, and which API version should I target? `Volo.Abp.RemoteServices` is the small assembly that defines that contract and the provider that resolves it.
+
+Source: `framework/src/Volo.Abp.RemoteServices/`.
+
+## AbpRemoteServiceOptions
+
+`Volo/Abp/Http/Client/AbpRemoteServiceOptions.cs`:
+
+```csharp
+public class AbpRemoteServiceOptions
+{
+    public RemoteServiceConfigurationDictionary RemoteServices { get; set; }
+}
+```
+
+`RemoteServiceConfigurationDictionary` (`RemoteServiceConfigurationDictionary.cs`) is a `Dictionary<string, RemoteServiceConfiguration?>` with a few conventions:
+
+- The constant `DefaultName = "Default"` is the fallback bucket.
+- `Default` is a property accessor sugar for `this["Default"]`.
+- `GetConfigurationOrDefault(name)` returns the named entry or `Default`, throwing if neither exists.
+- `GetConfigurationOrDefaultOrNull(name)` is the nullable variant — used by `ClientProxyBase` when resolving the API version, which is allowed to be missing.
+
+## RemoteServiceConfiguration
+
+`Volo/Abp/Http/Client/RemoteServiceConfiguration.cs` is a `Dictionary<string, string?>` so it binds straight from `IConfiguration`:
+
+```csharp
+public class RemoteServiceConfiguration : Dictionary<string, string?>
+{
+    public string BaseUrl {
+        get => this.GetOrDefault(nameof(BaseUrl))!;
+        set => this[nameof(BaseUrl)] = value;
+    }
+
+    public string? Version {
+        get => this.GetOrDefault(nameof(Version));
+        set => this[nameof(Version)] = value;
+    }
+}
+```
+
+Two formally typed properties (`BaseUrl`, `Version`) plus arbitrary string keys that any module can read with `configuration.GetOrDefault("IdentityClient")`. `Volo.Abp.Http.Client.IdentityModel` uses this pattern via `RemoteServiceConfigurationExtensions.GetIdentityClient()` — see [Identity Model](/framework/http/identity-model).
+
+A typical bind:
+
+```json
+"RemoteServices": {
+    "Default": {
+        "BaseUrl": "https://api.example.com/",
+        "Version": "1.0"
+    },
+    "Identity": {
+        "BaseUrl": "https://identity.example.com/",
+        "IdentityClient": "Identity-Service"
+    },
+    "Saas": {
+        "BaseUrl": "https://saas.example.com/"
+    }
+}
+```
+
+```csharp
+context.Services.Configure<AbpRemoteServiceOptions>(
+    context.Services.GetConfiguration().GetSection("RemoteServices"));
+```
+
+The configuration section binds verbatim into the dictionary structure.
+
+## IRemoteServiceConfigurationProvider
+
+The contract that proxies talk to is the provider, not the options bag:
+
+```csharp
+public interface IRemoteServiceConfigurationProvider
+{
+    Task<RemoteServiceConfiguration> GetConfigurationOrDefaultAsync(string name);
+    Task<RemoteServiceConfiguration?> GetConfigurationOrDefaultOrNullAsync(string name);
+}
+```
+
+The async signature is what lets the default implementation, `RemoteServiceConfigurationProvider`, do tenant-aware URL rewriting:
+
+```csharp
+public class RemoteServiceConfigurationProvider : IRemoteServiceConfigurationProvider, IScopedDependency
+{
+    protected virtual async Task<RemoteServiceConfiguration?> GetMultiTenantConfigurationAsync(RemoteServiceConfiguration? configuration)
+    {
+        if (configuration == null) return configuration;
+        var baseUrl = await MultiTenantUrlProvider.GetUrlAsync(configuration.BaseUrl);
+        if (baseUrl == configuration.BaseUrl) return configuration;
+
+        return new RemoteServiceConfiguration(configuration) { BaseUrl = baseUrl };
+    }
+}
+```
+
+`IMultiTenantUrlProvider` (from `Volo.Abp.MultiTenancy`) substitutes `{0}` placeholders or applies subdomain conventions. So if a tenant is active and `BaseUrl = "https://{0}.api.example.com/"`, the URL is rewritten to `https://acme.api.example.com/` for tenant `acme`. The provider clones the configuration rather than mutating the dictionary so options remain stable across tenants — important when the same option-monitor value is shared across requests.
+
+The provider is `IScopedDependency` because `ICurrentTenant` is request-scoped: a single options snapshot is read on construction (`options.CurrentValue` from `IOptionsMonitor`) but the tenant lookup happens per call.
+
+## Where the name comes from
+
+Each registration of an HTTP client proxy attaches a `remoteServiceConfigurationName`:
+
+```csharp
+services.AddHttpClientProxies(typeof(IdentityApplicationModule).Assembly, "Identity");
+services.AddStaticHttpClientProxies(typeof(SaasApplicationModule).Assembly, "Saas");
+```
+
+That string becomes the lookup key when `ClientProxyBase.RequestAsync` resolves the configuration. The default — `RemoteServiceConfigurationDictionary.DefaultName` ("Default") — is what you get when you omit the argument. A typical microservice consumer therefore declares one configuration per service it talks to.
+
+## What the dictionary does not own
+
+`RemoteServiceConfiguration` is intentionally tiny. It does not own:
+
+- HTTP-pipeline configuration (handlers, timeouts) — that belongs on the typed `HttpClient` registration in DI (`services.AddHttpClient(name, ...)`).
+- Authentication scheme — handled by `IRemoteServiceHttpClientAuthenticator`, with the identity client name optionally embedded in the configuration dictionary (`"IdentityClient": "..."`).
+- TLS / certificate selection — owned by the `HttpClient` handler.
+
+This keeps the configuration safe to log (no secrets) and trivial to bind from `appsettings.json`, while leaving runtime concerns to the regular `IHttpClientFactory` plumbing.
+
+## Module composition
+
+`AbpRemoteServicesModule.cs` declares no exotic dependencies — it just exposes `AbpRemoteServiceOptions` and `RemoteServiceConfigurationProvider`. Every HTTP-shaped integration (HTTP client, MVC integration client, OData client, gRPC client) depends on it transitively, which is why `RemoteServices` is one of the first sections to appear in an ABP `appsettings.json`.
+
+For how proxies actually consume the configuration, see [Dynamic Client Proxy](/framework/http/dynamic-client-proxy) and [Static Client Proxy](/framework/http/static-client-proxy).

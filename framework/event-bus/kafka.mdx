@@ -1,0 +1,92 @@
+---
+title: "Kafka Distributed Event Bus: Topics, Producers, Consumers"
+sidebarTitle: "Kafka"
+description: "Run IDistributedEventBus on Kafka with KafkaDistributedEventBus, IConsumerPool, IProducerPool, and AbpKafkaEventBusOptions."
+---
+
+`Volo.Abp.EventBus.Kafka` replaces the default distributed event bus with `KafkaDistributedEventBus`, which uses Confluent.Kafka under `Volo.Abp.Kafka` for pooled producers and consumers.
+
+## KafkaDistributedEventBus
+
+`KafkaDistributedEventBus` (`framework/src/Volo.Abp.EventBus.Kafka/Volo/Abp/EventBus/Kafka/KafkaDistributedEventBus.cs`) is registered with `[Dependency(ReplaceServices = true)]` and `[ExposeServices(typeof(IDistributedEventBus), typeof(KafkaDistributedEventBus))]`. It receives:
+
+- `AbpKafkaEventBusOptions` — topic name, group id, connection name.
+- `IKafkaMessageConsumerFactory` — wraps consumers.
+- `IKafkaSerializer` — defaults to `Utf8JsonKafkaSerializer`.
+- `IProducerPool` — pooled `IProducer<string, byte[]>`.
+
+On startup the bus creates one consumer per `GroupId`/`TopicName` pair and produces every outgoing event to the same topic, keyed by event name.
+
+## AbpKafkaEventBusOptions
+
+```csharp
+public class AbpKafkaEventBusOptions
+{
+    public string? ConnectionName { get; set; }
+    public string TopicName { get; set; } = default!;
+    public string GroupId { get; set; } = default!;
+}
+```
+
+Each ABP service in a deployment usually picks its own `GroupId` so it forms an independent consumer group on the shared topic.
+
+## IConsumerPool / IProducerPool
+
+`IConsumerPool` and `IProducerPool` (`framework/src/Volo.Abp.Kafka/Volo/Abp/Kafka/`) are `ISingletonDependency`. They lazily build clients per connection name and cache them in a `ConcurrentDictionary<string, Lazy<IConsumer<...>>>`:
+
+```csharp
+// ConsumerPool.cs
+public virtual IConsumer<string, byte[]> Get(string groupId, string? connectionName = null)
+{
+    connectionName ??= KafkaConnections.DefaultConnectionName;
+    return Consumers.GetOrAdd(connectionName, _ => new Lazy<IConsumer<string, byte[]>>(() =>
+    {
+        var config = new ConsumerConfig(Options.Connections.GetOrDefault(connectionName).ToDictionary(...))
+        {
+            GroupId = groupId,
+            EnableAutoCommit = false
+        };
+        Options.ConfigureConsumer?.Invoke(config);
+        return new ConsumerBuilder<string, byte[]>(config).Build();
+    })).Value;
+}
+```
+
+`EnableAutoCommit = false` is deliberate — `KafkaMessageConsumer` commits offsets only after handlers succeed so partial failures are re-processed.
+
+`ProducerPool` defaults producers to `Acks.All` and `EnableIdempotence = true` so messages are not duplicated by broker retries:
+
+```csharp
+producerConfig.Acks ??= Acks.All;
+producerConfig.EnableIdempotence ??= true;
+```
+
+## AbpKafkaOptions
+
+`AbpKafkaOptions` (`Volo.Abp.Kafka/Volo/Abp/Kafka/AbpKafkaOptions.cs`) holds the connection dictionary and three optional hooks: `ConfigureProducer`, `ConfigureConsumer`, and `ConfigureTopic` (used by the topic auto-creation logic).
+
+```csharp
+Configure<AbpKafkaOptions>(options =>
+{
+    options.Connections.Default.BootstrapServers = "kafka:9092";
+    options.ConfigureProducer = c => c.MessageTimeoutMs = 30000;
+});
+
+Configure<AbpKafkaEventBusOptions>(options =>
+{
+    options.TopicName = "abp-events";
+    options.GroupId = "billing-service";
+});
+```
+
+## Module wiring
+
+Reference `Volo.Abp.EventBus.Kafka` and depend on `AbpEventBusKafkaModule` from your module. `KafkaDistributedEventBus.Initialize()` is invoked at application startup to begin consumption. Use the [Distributed Event Bus](/framework/event-bus/distributed-event-bus) outbox/inbox pattern for transactional guarantees.
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Distributed Bus" href="/framework/event-bus/distributed-event-bus" icon="network-wired" />
+  <Card title="RabbitMQ" href="/framework/event-bus/rabbitmq" icon="rabbit" />
+  <Card title="Azure Service Bus" href="/framework/event-bus/azure-service-bus" icon="cloud" />
+</CardGroup>

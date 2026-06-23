@@ -1,0 +1,209 @@
+---
+title: "NuGet & npm: ABP Package Build and Publish Pipeline"
+sidebarTitle: "NuGet & npm"
+description: "How ABP produces 200+ NuGets and the MVC/Angular npm packs — pack, push, npm version-bump, lerna publish, and the rate-limit-aware retry loop."
+---
+
+A coordinated ABP release publishes hundreds of NuGet packages plus two large families of npm packages (the MVC `@abp/*` static-asset packs and the Angular `@abp/ng.*` packs). The pipeline lives in `/deploy/`, `/nupkg/`, and `/npm/`, and is driven by the eight numbered scripts in `deploy/`. This page documents the pack-and-push half (NuGet) and the npm publish half (MVC + Angular) of that pipeline.
+
+The numbered orchestrator is described in [Scripts](/build/scripts); this page goes deeper into what happens inside each step.
+
+## NuGet pack → push
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant Step2 as deploy/2-nuget-pack.ps1
+    participant Pack as nupkg/pack.ps1
+    participant Step3 as deploy/3-nuget-push.ps1
+    participant Push as nupkg/push_packages.ps1
+    participant NuGet as nuget.org
+
+    Op->>Step2: ./2-nuget-pack.ps1
+    Step2->>Pack: cd ..\nupkg; powershell -File pack.ps1
+    Pack->>Pack: del *.nupkg
+    loop $solutions
+        Pack->>Pack: dotnet restore
+    end
+    loop $projects
+        Pack->>Pack: dotnet pack -c Release --no-build /maxcpucount
+        Pack->>Pack: Move-Item bin/Release/*.nupkg -> /nupkg/
+    end
+    Op->>Step3: ./3-nuget-push.ps1
+    Step3->>Push: powershell -File push_packages.ps1 $apiKey
+    loop $projects
+        Push->>Push: rate-limit window check (250/hour)
+        Push->>NuGet: dotnet nuget push <pkg>.<ver>.nupkg --skip-duplicate
+        alt 4xx
+            Push->>Push: parse "retry after: Ns", retry up to 3x
+        end
+    end
+    Push->>Push: write failed-packages.txt
+```
+
+### `deploy/2-nuget-pack.ps1`
+
+Thin wrapper:
+
+```powershell
+. ..\nupkg\common.ps1
+echo "`n-----=====[ CREATING NUGET PACKAGES ]=====-----`n"
+cd ..\nupkg
+powershell -File pack.ps1
+cd ..\deploy
+```
+
+### `nupkg/pack.ps1`
+
+1. `del *.nupkg` — wipe the previous run's output from `/nupkg/`.
+2. For every solution in `$solutions` (defined in `nupkg/common.ps1` — 19 entries: `framework`, `modules/account`, …, `modules/cms-kit`): `dotnet restore`.
+3. For every project in `$projects` (every NuGet-producing csproj path): `dotnet pack -c Release --no-build -- /maxcpucount` and move the resulting `bin/Release/<Project>.<Version>.nupkg` into the `/nupkg/` folder.
+
+The `--no-build` flag assumes step 1 (`1-fetch-and-build.ps1` → `build-all-release.ps1`) has already produced Release binaries.
+
+### `deploy/3-nuget-push.ps1`
+
+Reads the API key from `nuget-api-key.txt` if present, else prompts:
+
+```powershell
+$passwordFileName = "nuget-api-key.txt"
+if (Test-Path -Path $passwordFileName -PathType Leaf) {
+    $nugetApiKey = Get-Content $passwordFileName
+}
+```
+
+Then `cd ..\nupkg && powershell -File push_packages.ps1 $nugetApiKey`.
+
+### `nupkg/push_packages.ps1`
+
+The push loop is the most operationally interesting part of the pipeline. Each iteration:
+
+1. Reads the current `<Version>` from `common.props` and forms `<project>.<version>.nupkg`.
+2. Enforces a **sliding 1-hour window** of at most `$maxPushesPerHour = 250` pushes (conservative vs nuget.org rate limits). If the cap is reached, sleeps until the oldest in-window push is more than an hour old.
+3. Pushes with `dotnet nuget push <pkg> --skip-duplicate -s https://api.nuget.org/v3/index.json --api-key "$apiKey"`.
+4. On a 4xx response, parses `retry after: Ns` out of the output and waits that many seconds; otherwise uses defaults `30s/60s/120s`. Retries up to `$maxQuotaRetryCount = 3` per package.
+5. Records the timestamp of every successful push in `$pushTimestamps` to drive the sliding-window check.
+6. On terminal failure, appends to `$failedPackages` and writes `failed-packages.txt` at the end so you can `cat failed-packages.txt | xargs -I{} dotnet nuget push {} ...` to retry just the broken ones.
+
+The script never deletes the local `.nupkg` after a successful push — the working directory accumulates each release until manually cleared by step 2 of the next release.
+
+### nupkg directory
+
+`/home/daytona/repos/abpframework/abp/nupkg/` only contains scripts and helpers at rest:
+
+| Entry | Notes |
+| --- | --- |
+| `pack.ps1`, `push_packages.ps1`, `push-nightly-packages-myget.ps1`, `unit_test.ps1` | The actual scripts |
+| `common.ps1` | `$packFolder`, `$rootFolder`, `Write-Info`/`Write-Error`/`Read-File`, `$solutions`, `$projects` |
+| `common.ps1.bak` | Snapshot of the previous project list — not part of the build |
+| `0` | An empty marker file |
+
+The hundreds of `*.nupkg` files only exist between step 2 (`pack`) and step 3 (`push`) of a release; they are created by `Move-Item` from each `bin/Release` and cleared by the next `del *.nupkg`.
+
+## npm publish — MVC
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant Step4 as deploy/4-npm-publish-mvc.ps1
+    participant Mvc as npm/publish-mvc.ps1
+    participant Lerna as Lerna
+    participant Npmjs as registry.npmjs.org
+
+    Op->>Step4: ./4-npm-publish-mvc.ps1
+    Step4->>Step4: npm set //registry.npmjs.org/:_authToken $token
+    Step4->>Mvc: cd ..\npm; powershell -File publish-mvc.ps1
+    Mvc->>Mvc: yarn install
+    Mvc->>Mvc: node publish-utils.js --nextVersion
+    Mvc->>Lerna: lerna version $Version --yes --no-commit-hooks --no-git-tag-version --force-publish
+    Mvc->>Mvc: yarn replace-with-tilde
+    Mvc->>Mvc: validate-versions
+    Mvc->>Lerna: lerna exec 'npm publish --registry $Registry' [--tag next if RC]
+    Lerna->>Npmjs: PUT each pack
+```
+
+### `deploy/4-npm-publish-mvc.ps1`
+
+```powershell
+$npmAuthToken = Get-Content "npm-auth-token.txt"   # or prompt
+cd ..\npm
+npm set //registry.npmjs.org/:_authToken $npmAuthToken
+powershell -File publish-mvc.ps1
+```
+
+### `npm/publish-mvc.ps1`
+
+Reads the next version via `node publish-utils.js --nextVersion` and runs this sequence:
+
+```powershell
+$commands = (
+  "npm run lerna -- version $Version --yes --no-commit-hooks --no-git-tag-version --no-push --force-publish",
+  "yarn replace-with-tilde",
+  "cd scripts",
+  "yarn install",
+  "yarn validate-versions --compareVersion $Version --path ../packs",
+  "cd ..",
+  $PacksPublishCommand
+)
+```
+
+Where `$PacksPublishCommand` is `npm run lerna -- exec 'npm publish --registry $Registry'`, augmented with `--tag next` when `publish-utils.js --prerelease --customVersion $Version` returns `true`.
+
+`yarn replace-with-tilde` rewrites `"some-dep": "1.2.3"` to `"some-dep": "~1.2.3"` across the MVC packs so consumers get patch-only floats. `validate-versions` aborts before any publish if a pack's `package.json` is out of step.
+
+## npm publish — Angular
+
+### `deploy/5-npm-publish-angular.ps1`
+
+Same shape as step 4 but invokes `publish-ng.ps1` instead.
+
+### `npm/publish-ng.ps1`
+
+The Angular flow is more complex because it has three orthogonal version updates:
+
+```powershell
+$UpdateNgPacksCommand   = "yarn update-version $Version"
+$NgPacksPublishCommand  = "npm run publish-packages -- --nextVersion $Version --skipGit --registry $Registry --skipVersionValidation"
+$UpdateGulpCommand      = "yarn update-gulp --registry $Registry"
+$UpdateLeptonXCommand   = "yarn update-lepton-x-versions -v $LeptonXVersion"
+
+$commands = (
+  "cd ng-packs",
+  "yarn install",
+  $UpdateNgPacksCommand,
+  "cd scripts",
+  "yarn install",
+  $NgPacksPublishCommand,
+  "cd ../../",
+  "cd scripts",
+  # …gulp + lepton-x updates
+)
+```
+
+The `LeptonXVersion` parameter (which `common.props` exposes as `<LeptonXVersion>5.6.0-preview</LeptonXVersion>`) is forwarded into `yarn update-lepton-x-versions` so Angular consumers always pair the right LeptonX theme bundle with their ABP version.
+
+Prerelease detection (`node publish-utils.js --prerelease --customVersion`) appends `--prerelease` to both `update-gulp` and `update-version`.
+
+## Versioning rules
+
+- **NuGet** — the single source of truth is `<Version>` in `common.props`. `1-fetch-and-build.ps1` writes it into the XML at the start of a release. Every `dotnet pack` re-reads it.
+- **npm** — Lerna manages versions across the package graph. `node publish-utils.js --nextVersion` returns the next semver based on `package.json` history; the operator can override by passing `-Version`.
+- **LeptonX** — paired version stored in `common.props` (`<LeptonXVersion>`); the npm scripts read it via the `-LeptonXVersion` parameter on `publish-ng.ps1`.
+
+## Failure modes
+
+| Symptom | Likely cause | Recovery |
+| --- | --- | --- |
+| `nuget push` returns 409 conflict | Version already exists | Push uses `--skip-duplicate`; the script treats it as success |
+| `nuget push` returns 429 + `retry after: Ns` | nuget.org rate limit hit | Auto-handled — script sleeps the indicated number of seconds and retries up to 3× |
+| `failed-packages.txt` written at end | Push failed after retries | Re-run `dotnet nuget push <pkg> --skip-duplicate ...` manually for each line |
+| Lerna refuses to publish | Working tree dirty / version mismatch | `validate-versions` aborts; reconcile and re-run from step 4 |
+| `git push` (step 6) fails | Token / auth | Re-run `6-git-commit.ps1` after fixing credentials |
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Scripts" href="/build/scripts">Complete script inventory.</Card>
+  <Card title="Build Overview" href="/build/overview">Where `<Version>` and `<LeptonXVersion>` live.</Card>
+  <Card title="GitHub Workflows" href="/build/github-workflows">CI that gates the release.</Card>
+</CardGroup>

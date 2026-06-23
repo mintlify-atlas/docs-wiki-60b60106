@@ -1,0 +1,53 @@
+---
+title: "Users Module: Shared User Abstractions Across ABP Modules"
+sidebarTitle: "Users"
+description: "Cross-cutting user contracts (IUser, IUserData, lookup services) that let ABP modules reference users without depending on Identity."
+---
+
+The Users module is a tiny abstractions package that lets ABP modules talk about "the current user" without taking a hard dependency on the [Identity module](/modules/identity). Anything that needs a user reference — auditing, blogging, CMS-Kit, account linking — depends on `Volo.Abp.Users.Abstractions` and lets the host application bind the concrete implementation. Source lives under `/home/daytona/repos/abpframework/abp/modules/users/src/`, split into `Abstractions`, `Domain.Shared`, `Domain`, `EntityFrameworkCore`, `MongoDB` and `Installer`.
+
+## Core contracts
+
+`IUser` (`modules/users/src/Volo.Abp.Users.Domain/Volo/Abp/Users/IUser.cs`) is the **aggregate-root-shaped** interface that real user entities (e.g. `IdentityUser`, `CmsUser`, `BlogUser`) implement:
+
+```csharp
+public interface IUser : IAggregateRoot<Guid>, IMultiTenant, IHasExtraProperties
+{
+    string UserName { get; }
+    string Email { get; }
+    string Name { get; }
+    string Surname { get; }
+    bool IsActive { get; }
+    bool EmailConfirmed { get; }
+    string PhoneNumber { get; }
+    bool PhoneNumberConfirmed { get; }
+}
+```
+
+`IUserData` (`Volo.Abp.Users.Abstractions/Volo/Abp/Users/IUserData.cs`) is the **DTO-shaped** counterpart used for cross-module synchronization and ETOs:
+
+| Member | Purpose |
+| --- | --- |
+| `Id`, `TenantId` | Identity within a tenant |
+| `UserName`, `Email`, `Name`, `Surname`, `PhoneNumber` | Profile fields |
+| `IsActive`, `EmailConfirmed`, `PhoneNumberConfirmed` | Status flags |
+| `ExtraProperties` (via `IHasExtraProperties`) | Module-extension bag |
+
+`UserData` (`UserData.cs`) is the default mutable implementation with a copy constructor from any `IUserData`. `RoleData` / `IRoleData` mirror it for roles.
+
+## Lookup and synchronization
+
+- `IUserLookupService<TUser>` (`Volo.Abp.Users.Domain/Volo/Abp/Users/IUserLookupService.cs`) — generic `FindByIdAsync` / `FindByUserNameAsync` / `SearchAsync` over any `IUser` aggregate, plus `GetCountAsync`. `UserLookupService<TUser, TUserRepository>` is the EF/Mongo-agnostic implementation that calls into an `IUserRepository<TUser>`.
+- `IExternalUserLookupServiceProvider` (`Volo.Abp.Users.Abstractions/Volo/Abp/Users/IExternalUserLookupServiceProvider.cs`) — what modules call when they need a user but don't own the user table; the Identity module supplies the real implementation.
+- `UserEto`, `UserPasswordChangeRequestedEto`, `InviteUserToTenantRequestedEto` — distributed events broadcast by the host so subscribers (CMS, blogging, audit logs) can mirror user state.
+
+## How modules consume it
+
+Modules that need to project users into their own bounded context use this pattern (see [CMS-Kit](/modules/cms-kit) `CmsUserSynchronizer` and [Blogging](/modules/blogging) `BlogUserSynchronizer`):
+
+1. Define a local aggregate (e.g. `CmsUser`) that implements `IUser` and an `Update(IUserData)` method via `IUpdateUserData`.
+2. Subscribe to `EntityUpdatedEto<UserEto>` from the host.
+3. Call `IExternalUserLookupServiceProvider.FindByIdAsync(...)` to pull fresh data.
+4. Upsert the local copy through a repository.
+
+See also: [/framework/cross-cutting/auditing](/framework/cross-cutting/auditing) for how audit log records reference `IUser`, and [/modules/identity](/modules/identity) for the canonical implementation.

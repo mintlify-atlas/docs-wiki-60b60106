@@ -1,0 +1,104 @@
+---
+title: "Background Workers: Long-Running Loops Inside an ABP App"
+sidebarTitle: "Background Workers"
+description: "Build supervised loops with IBackgroundWorker, BackgroundWorkerBase, AsyncPeriodicBackgroundWorkerBase, and IBackgroundWorkerManager."
+---
+
+Background workers are singletons that the ABP application starts at boot and stops at shutdown. Unlike [background jobs](/framework/background/background-jobs), workers are not driven by an enqueue call — they decide for themselves when to do work, typically on a timer or a long-lived connection.
+
+## IBackgroundWorker
+
+`IBackgroundWorker` (`framework/src/Volo.Abp.BackgroundWorkers/Volo/Abp/BackgroundWorkers/IBackgroundWorker.cs`) is a marker interface that combines `IRunnable` (which defines `StartAsync` / `StopAsync`) with `ISingletonDependency` — workers are auto-registered in DI as singletons.
+
+```csharp
+public interface IBackgroundWorker : IRunnable, ISingletonDependency { }
+```
+
+## BackgroundWorkerBase
+
+`BackgroundWorkerBase` is the recommended starting point for non-periodic workers. It supplies `IAbpLazyServiceProvider`, a logger, and a `StoppingTokenSource` that derived classes can observe to cancel in-flight work cleanly:
+
+```csharp
+public virtual Task StopAsync(CancellationToken cancellationToken = default)
+{
+    StoppingTokenSource.Cancel();
+    StoppingTokenSource.Dispose();
+    return Task.CompletedTask;
+}
+```
+
+Override `StartAsync` to kick off your loop. Use the lazy service provider rather than constructor injection if you need scoped dependencies — workers themselves are singletons.
+
+## AsyncPeriodicBackgroundWorkerBase
+
+The most common pattern is a timer loop, which `AsyncPeriodicBackgroundWorkerBase` (`AsyncPeriodicBackgroundWorkerBase.cs`) implements. It owns an `AbpAsyncTimer` and creates a fresh `IServiceScope` per tick, so DI-scoped services behave like web requests inside the worker:
+
+```csharp
+public abstract class AsyncPeriodicBackgroundWorkerBase : BackgroundWorkerBase
+{
+    protected IServiceScopeFactory ServiceScopeFactory { get; }
+    protected AbpAsyncTimer Timer { get; }
+    protected abstract Task DoWorkAsync(PeriodicBackgroundWorkerContext workerContext);
+}
+```
+
+Exceptions thrown by `DoWorkAsync` are sent to `IExceptionNotifier` and logged — the timer keeps ticking. Set `Timer.Period` (ms) in the constructor and optionally a `CronExpression` (which has higher priority than `Period` when supported by the underlying provider).
+
+Example:
+
+```csharp
+public class CleanupWorker : AsyncPeriodicBackgroundWorkerBase
+{
+    public CleanupWorker(AbpAsyncTimer timer, IServiceScopeFactory s) : base(timer, s)
+    {
+        Timer.Period = 60_000; // every minute
+    }
+
+    protected override async Task DoWorkAsync(PeriodicBackgroundWorkerContext ctx)
+    {
+        var repo = ctx.ServiceProvider.GetRequiredService<IMyRepository>();
+        await repo.DeleteOldAsync();
+    }
+}
+```
+
+`PeriodicBackgroundWorkerBase` is the synchronous counterpart for legacy code.
+
+## IBackgroundWorkerManager
+
+`IBackgroundWorkerManager` (`IBackgroundWorkerManager.cs`) owns the worker collection and propagates start/stop signals:
+
+```csharp
+public interface IBackgroundWorkerManager : IRunnable
+{
+    Task AddAsync(IBackgroundWorker worker, CancellationToken cancellationToken = default);
+}
+```
+
+`BackgroundWorkerManager` is the default `ISingletonDependency` implementation. `AddAsync` appends the worker to its list and, if the manager is already running, starts the worker immediately — so workers added after application initialisation still kick in.
+
+## Registration
+
+Use the `BackgroundWorkersApplicationInitializationContextExtensions.AddBackgroundWorkerAsync<T>()` helper from `OnApplicationInitializationAsync`:
+
+```csharp
+public override async Task OnApplicationInitializationAsync(ApplicationInitializationContext context)
+{
+    await context.AddBackgroundWorkerAsync<CleanupWorker>();
+}
+```
+
+The helper resolves the worker from DI (so dependencies are honoured) and delegates to `IBackgroundWorkerManager.AddAsync`. `AbpEventBusModule` uses the same hook to register its built-in `OutboxSenderManager` and `InboxProcessManager` workers.
+
+## Coordination across hosts
+
+Because every host instance owns the same singleton worker, multi-replica deployments duplicate execution by default. Pair your worker with `IAbpDistributedLock` (used internally by `BackgroundJobWorker`, `OutboxSender`, and `InboxProcessor`) when you need single-leader semantics. See [Distributed Locking](/framework/infra/distributed-locking).
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Background Jobs" href="/framework/background/background-jobs" icon="list-check" />
+  <Card title="Hangfire" href="/framework/background/hangfire" icon="fire" />
+  <Card title="Quartz" href="/framework/background/quartz" icon="clock" />
+  <Card title="Distributed Locking" href="/framework/infra/distributed-locking" icon="lock" />
+</CardGroup>

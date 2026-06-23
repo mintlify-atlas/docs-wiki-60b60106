@@ -1,0 +1,39 @@
+---
+title: "Dapr Distributed Event Bus: Pub/Sub via DaprClient"
+sidebarTitle: "Dapr"
+description: "Publish ABP events through Dapr building blocks with DaprDistributedEventBus and AbpDaprEventBusOptions on a named pub/sub component."
+---
+
+`Volo.Abp.EventBus.Dapr` lets ABP use any Dapr pub/sub component (Redis Streams, Kafka, NATS, etc.) by speaking to the local Dapr sidecar instead of the broker directly.
+
+## DaprDistributedEventBus
+
+`DaprDistributedEventBus` (`framework/src/Volo.Abp.EventBus.Dapr/Volo/Abp/EventBus/Dapr/DaprDistributedEventBus.cs`) is registered with `[Dependency(ReplaceServices = true)]` and `[ExposeServices(typeof(IDistributedEventBus), typeof(DaprDistributedEventBus))]`. It takes:
+
+- `IAbpDaprClientFactory` — builds `DaprClient` instances honouring `AbpDaprOptions`.
+- `IDaprSerializer` — defaults to `Utf8JsonDaprSerializer`.
+- `AbpDaprEventBusOptions` — pub/sub component name.
+
+Publishes call `DaprClient.PublishEventAsync(pubSubName, topicName, data)` and inbound messages arrive over HTTP through the ABP Dapr MVC integration (`Volo.Abp.AspNetCore.Mvc.Dapr.EventBus`).
+
+## AbpDaprEventBusOptions
+
+```csharp
+public class AbpDaprEventBusOptions
+{
+    public string PubSubName { get; set; } = "pubsub";
+}
+```
+
+`PubSubName` matches the `name` field of the Dapr pub/sub component manifest. The topic name per event is derived from `EventNameAttribute` or the type's full name.
+
+## Module wiring
+
+Depend on `AbpEventBusDaprModule` and configure the sidecar address through `AbpDaprOptions`. The ASP.NET Core integration registers the subscription endpoints automatically so the Dapr sidecar can post incoming events.
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Distributed Bus" href="/framework/event-bus/distributed-event-bus" icon="network-wired" />
+  <Card title="Dapr Infrastructure" href="/framework/infra/dapr" icon="cube" />
+</CardGroup>

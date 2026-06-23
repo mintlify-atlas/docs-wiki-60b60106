@@ -1,0 +1,72 @@
+---
+title: "API Versioning Abstractions: IRequestedApiVersion"
+sidebarTitle: "API Versioning"
+description: "The tiny abstraction package that lets ABP modules read the current API version without pulling in the full Asp.Versioning stack."
+---
+
+`Volo.Abp.ApiVersioning.Abstractions` is the smallest package in the framework — three files. Its only job is to let any ABP module ask "which API version did the caller request?" without taking a hard dependency on `Asp.Versioning.*`.
+
+## The contract
+
+`framework/src/Volo.Abp.ApiVersioning.Abstractions/Volo/Abp/ApiVersioning/IRequestedApiVersion.cs`:
+
+```csharp
+public interface IRequestedApiVersion
+{
+    string? Current { get; }
+}
+```
+
+`Current` returns the requested version string (e.g. `"1.0"`, `"2025-01-15"`) or `null` when no version was negotiated. Modules read it to switch behaviour, embed the version in cache keys, or stamp outgoing remote-service calls.
+
+## Default registration
+
+`AbpApiVersioningAbstractionsModule.cs` registers `NullRequestedApiVersion.Instance` as the singleton implementation:
+
+```csharp
+public class AbpApiVersioningAbstractionsModule : AbpModule
+{
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.AddSingleton<IRequestedApiVersion>(NullRequestedApiVersion.Instance);
+    }
+}
+```
+
+`NullRequestedApiVersion.cs` is the obvious singleton:
+
+```csharp
+public class NullRequestedApiVersion : IRequestedApiVersion
+{
+    public static NullRequestedApiVersion Instance = new();
+    public string? Current => null;
+    private NullRequestedApiVersion() {}
+}
+```
+
+So any host that has *not* opted in to API versioning still resolves `IRequestedApiVersion` to a working, no-op instance.
+
+## How it gets the real value
+
+`framework/src/Volo.Abp.AspNetCore.Mvc/Volo/Abp/AspNetCore/Mvc/Versioning/HttpContextRequestedApiVersion.cs` is the MVC-side replacement that reads the negotiated version from `HttpContext` (set by `Asp.Versioning.AspNetCore`). When `AbpAspNetCoreMvcModule` boots, it replaces the null implementation with the HTTP-context one so any service injected with `IRequestedApiVersion` now sees the live value.
+
+On the client side, `framework/src/Volo.Abp.Http.Client/Volo/Abp/Http/Client/ClientProxying/CurrentApiVersionInfo.cs` implements `ICurrentApiVersionInfo` against this interface — the dynamic and static HTTP proxies (see [Dynamic Client Proxy](/framework/http/dynamic-client-proxy)) consult it to choose which versioned route to call.
+
+## Configuring versions on conventional controllers
+
+Versions are declared per assembly via `ConventionalControllerSetting.ApiVersions` (from [MVC](/framework/aspnetcore/mvc)):
+
+```csharp
+Configure<AbpAspNetCoreMvcOptions>(options =>
+{
+    options.ConventionalControllers.Create(typeof(MyAppModule).Assembly, setting =>
+    {
+        setting.ApiVersions.Add(new ApiVersion(1, 0));
+        setting.ApiVersions.Add(new ApiVersion(2, 0));
+    });
+});
+```
+
+`AbpServiceConvention` then applies the corresponding `[MapToApiVersion]` attributes when projecting AppServices into controllers, and the MVC pipeline routes incoming requests on `?api-version=` or `X-Api-Version:` headers as configured by `services.AddApiVersioning(...)`.
+
+That's the whole package — it exists so that downstream code (audit logging, cache key building, proxy URL composition) can stay clean even when the host hasn't set up versioning yet.

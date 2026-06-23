@@ -1,0 +1,54 @@
+---
+title: "Background Processing Overview: Jobs vs Workers in ABP"
+sidebarTitle: "Overview"
+description: "Compare ABP background jobs and background workers, their abstractions, providers, and when to pick each model for long-running work."
+---
+
+ABP separates "fire-and-forget unit of work" from "always-running supervised loop" into two distinct subsystems. `Volo.Abp.BackgroundJobs` queues serialized job arguments for a single execution by a job handler; `Volo.Abp.BackgroundWorkers` hosts long-lived `IBackgroundWorker` instances that the application starts and stops. The two systems share nothing structurally but compose well — a worker can enqueue jobs, and a job can run as part of a worker's polling loop.
+
+## Background jobs
+
+Jobs implement `IBackgroundJob<TArgs>` or `IAsyncBackgroundJob<TArgs>`. You hand `IBackgroundJobManager.EnqueueAsync(args)` a serialisable args object; the manager persists a `BackgroundJobInfo` row and a polling worker eventually drains it. The default in-process implementation (`DefaultBackgroundJobManager` + `BackgroundJobWorker`) uses `InMemoryBackgroundJobStore`; production deployments swap in [Hangfire](/framework/background/hangfire), [Quartz](/framework/background/quartz), [RabbitMQ](/framework/background/rabbitmq), or [TickerQ](/framework/background/tickerq).
+
+## Background workers
+
+Workers implement `IBackgroundWorker` (a marker for `IRunnable` + `ISingletonDependency`). The simplest base is `BackgroundWorkerBase`; for timed loops use `AsyncPeriodicBackgroundWorkerBase` (async) or `PeriodicBackgroundWorkerBase` (sync). Workers are registered with `IBackgroundWorkerManager.AddAsync`, typically from `OnApplicationInitializationAsync`.
+
+## When to pick which
+
+| Concern | Background Jobs | Background Workers |
+| --- | --- | --- |
+| **Trigger** | `EnqueueAsync(args)` from user code | Application startup |
+| **State** | Persistent `BackgroundJobInfo` (Store) | Process memory |
+| **Lifetime** | One execution per enqueued args | Lifetime of host |
+| **Retry on failure** | Automatic (`TryCount`, exponential backoff, `IsAbandoned`) | Worker-defined |
+| **Argument payload** | Serialised via `IBackgroundJobSerializer` | None — workers self-source data |
+| **Survives restart** | Yes (with persistent store) | Restarts on host restart |
+| **Scaling** | Multiple workers share a queue; lock via `IAbpDistributedLock` | One instance per host typically; coordinate via lock |
+| **Default provider** | `DefaultBackgroundJobManager` + `BackgroundJobWorker` | `BackgroundWorkerManager` |
+| **Alternate providers** | Hangfire, Quartz, RabbitMQ, TickerQ | Hangfire, Quartz, TickerQ |
+
+## Provider matrix
+
+<CardGroup cols={2}>
+  <Card title="Background Jobs" href="/framework/background/background-jobs" icon="list-check">
+    Default in-memory store; `EnqueueAsync` + polling worker with retries.
+  </Card>
+  <Card title="Background Workers" href="/framework/background/background-workers" icon="gears">
+    `IBackgroundWorker`, `AsyncPeriodicBackgroundWorkerBase`, manager lifecycle.
+  </Card>
+  <Card title="Hangfire" href="/framework/background/hangfire" icon="fire">
+    Replaces both subsystems with Hangfire storage and Hangfire's dashboard.
+  </Card>
+  <Card title="Quartz" href="/framework/background/quartz" icon="clock">
+    CRON-driven workers and durable jobs backed by Quartz.NET.
+  </Card>
+  <Card title="RabbitMQ" href="/framework/background/rabbitmq" icon="rabbit">
+    Distributed job queue using RabbitMQ exchanges and consumers.
+  </Card>
+  <Card title="TickerQ" href="/framework/background/tickerq" icon="hourglass">
+    EF Core-friendly scheduler for both jobs and workers.
+  </Card>
+</CardGroup>
+
+The default subsystems are wired by `AbpBackgroundJobsModule` and `AbpBackgroundWorkersModule` (`framework/src/Volo.Abp.BackgroundJobs/Volo/Abp/BackgroundJobs/AbpBackgroundJobsModule.cs`, `framework/src/Volo.Abp.BackgroundWorkers/Volo/Abp/BackgroundWorkers/AbpBackgroundWorkersModule.cs`). Each provider module replaces specific services via `[Dependency(ReplaceServices = true)]` so the application code (`IBackgroundJobManager`, `IBackgroundWorkerManager`) stays unchanged.

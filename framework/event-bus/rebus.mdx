@@ -1,0 +1,48 @@
+---
+title: "Rebus Distributed Event Bus: Configurer-Driven Transports"
+sidebarTitle: "Rebus"
+description: "Bridge IDistributedEventBus to the Rebus messaging library with AbpRebusEventBusOptions.Configurer and a pluggable transport."
+---
+
+`Volo.Abp.EventBus.Rebus` integrates the [Rebus](https://github.com/rebus-org/Rebus) service bus library so ABP events can ride on any Rebus-supported transport (RabbitMQ, MSMQ, SQL Server, Azure Service Bus, in-memory, etc.).
+
+## RebusDistributedEventBus
+
+`RebusDistributedEventBus` (`framework/src/Volo.Abp.EventBus.Rebus/Volo/Abp/EventBus/Rebus/RebusDistributedEventBus.cs`) replaces the default registration with `[Dependency(ReplaceServices = true)]`. It receives an `IBus` (built from the `RebusConfigurer`), an `IRebusSerializer`, and `AbpRebusEventBusOptions`. Inbound dispatch runs through `AbpRebusEventHandlerStep`, a Rebus pipeline step that resolves ABP handler factories.
+
+## AbpRebusEventBusOptions
+
+```csharp
+public class AbpRebusEventBusOptions
+{
+    public string InputQueueName { get; set; } = null!;
+    public string RebusInstanceName { get; set; } = "default-instance";
+    public Action<RebusConfigurer> Configurer { get; set; } // configurer pattern
+    public Func<IBus, Type, object, Task>? Publish { get; set; }
+}
+```
+
+The default `Configurer` uses an in-memory transport keyed by `InputQueueName` (`Rebus.Persistence.InMem.InMemNetwork`). Override it to point at production transports:
+
+```csharp
+Configure<AbpRebusEventBusOptions>(options =>
+{
+    options.InputQueueName = "billing.events";
+    options.Configurer = configure => configure
+        .Transport(t => t.UseRabbitMq("amqp://rabbit", "billing.events"))
+        .Routing(r => r.TypeBased().MapAssemblyOf<OrderPlacedEto>("billing.events"));
+});
+```
+
+`Publish` is an optional override that lets you customise how each event is sent (`bus.Publish` vs. `bus.Send`, headers, etc.).
+
+## Module wiring
+
+Depend on `AbpEventBusRebusModule`; it registers the configurer-produced `IBus` and starts the Rebus message pump. Handlers continue to implement `IDistributedEventHandler<TEvent>` exactly as with other providers.
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Distributed Bus" href="/framework/event-bus/distributed-event-bus" icon="network-wired" />
+  <Card title="RabbitMQ" href="/framework/event-bus/rabbitmq" icon="rabbit" />
+</CardGroup>

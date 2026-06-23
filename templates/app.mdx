@@ -1,0 +1,113 @@
+---
+title: "App Template: Layered DDD Solution and Project Matrix"
+sidebarTitle: "App"
+description: "The default `abp new` template — a layered DDD solution under templates/app/aspnet-core/src whose 23 projects are pruned to match the user's UI, database, and auth-server choices."
+---
+
+`templates/app/aspnet-core/` is the layered Domain-Driven Design starter that `abp new <name>` produces by default. The solution carries every project shape ABP supports — MVC, all flavours of Blazor, a separated AuthServer, both EF Core and MongoDB persistence — and the CLI's project-building pipeline deletes the projects you do not need based on the flags you pass. This page walks through every project under `src/` and which switch keeps or removes it.
+
+## Files at the solution root
+
+`templates/app/aspnet-core/` contains:
+
+- `MyCompanyName.MyProjectName.slnx` — the solution file (modern XML format).
+- `MyCompanyName.MyProjectName.sln.DotSettings` — ReSharper/Rider conventions.
+- `NuGet.Config` — the feeds the template assumes.
+- `common.props` — central props imported by every `csproj`.
+- `README.md`.
+- `src/` — described below.
+- `test/` — xUnit projects mirroring the `src/` layout.
+
+The companion `templates/app/angular/` folder holds the Angular front-end consumed when `-u angular` is selected (see [Angular](/templates/angular)).
+
+## The 23 src/ projects
+
+```text
+templates/app/aspnet-core/src/
+  MyCompanyName.MyProjectName.Application
+  MyCompanyName.MyProjectName.Application.Contracts
+  MyCompanyName.MyProjectName.AuthServer
+  MyCompanyName.MyProjectName.Blazor
+  MyCompanyName.MyProjectName.Blazor.Client
+  MyCompanyName.MyProjectName.Blazor.Server
+  MyCompanyName.MyProjectName.Blazor.Server.Tiered
+  MyCompanyName.MyProjectName.Blazor.WebApp
+  MyCompanyName.MyProjectName.Blazor.WebApp.Client
+  MyCompanyName.MyProjectName.Blazor.WebApp.Tiered
+  MyCompanyName.MyProjectName.Blazor.WebApp.Tiered.Client
+  MyCompanyName.MyProjectName.DbMigrator
+  MyCompanyName.MyProjectName.Domain
+  MyCompanyName.MyProjectName.Domain.Shared
+  MyCompanyName.MyProjectName.EntityFrameworkCore
+  MyCompanyName.MyProjectName.HttpApi
+  MyCompanyName.MyProjectName.HttpApi.Client
+  MyCompanyName.MyProjectName.HttpApi.Host
+  MyCompanyName.MyProjectName.HttpApi.HostWithIds
+  MyCompanyName.MyProjectName.MongoDB
+  MyCompanyName.MyProjectName.Web
+  MyCompanyName.MyProjectName.Web.Host
+```
+
+### Project role and selection
+
+| Project | Layer / role | Kept when |
+| --- | --- | --- |
+| `Domain.Shared` | Constants, enums, localization keys — referenced by every layer. | Always. |
+| `Domain` | Entities, repositories, domain services, value objects. | Always. |
+| `Application.Contracts` | Application service interfaces, DTOs, permission definitions. | Always. |
+| `Application` | Application service implementations. | Always. |
+| `EntityFrameworkCore` | `DbContext`, configurations, EF Core repositories. | `-d ef` (default). Removed when `-d mongodb`. |
+| `MongoDB` | MongoDB context + repositories. | `-d mongodb`. Removed when `-d ef`. |
+| `DbMigrator` | Console app that seeds initial data + runs EF migrations. | Always (no-op for MongoDB). |
+| `HttpApi` | MVC controllers exposing the application services as HTTP endpoints. | Always. |
+| `HttpApi.Client` | Strongly typed C# proxy clients consuming `HttpApi` (used by MAUI / WPF / Blazor WASM). | Kept when a separate client (Blazor WASM, MAUI, console) needs to call the API. |
+| `HttpApi.Host` | ASP.NET Core host that serves the `HttpApi` controllers. | Used by the Angular UI and the Blazor WASM UI when the API is hosted separately. |
+| `HttpApi.HostWithIds` | Variant of `HttpApi.Host` that also hosts the IdentityServer/OpenIddict authority in the same process — i.e. non-tiered single-process API + auth. | Kept when **not** using `--tiered` and **not** using `--separate-auth-server`. |
+| `AuthServer` | Stand-alone OpenIddict authority project. | Kept when `--tiered` or `--separate-auth-server`. Removed in single-process modes. |
+| `Web` | Razor-Pages MVC UI (MVC + Tag Helpers + Bootstrap). | `-u mvc` (default). Removed for other UIs. |
+| `Web.Host` | Tiered MVC host (UI talks to a remote `HttpApi.Host`). | `-u mvc --tiered`. |
+| `Blazor` | Blazor WebAssembly UI (client-side). | `-u blazor`. |
+| `Blazor.Server` | Blazor Server UI. | `-u blazor-server` (single-host). |
+| `Blazor.Server.Tiered` | Tiered Blazor Server (UI + remote API host). | `-u blazor-server --tiered`. |
+| `Blazor.WebApp` | Blazor Web App (.NET 8 unified) server side. | `-u blazor-webapp` (single-host). |
+| `Blazor.WebApp.Client` | Blazor Web App WASM-side companion. | Same as `Blazor.WebApp` — kept as a pair. |
+| `Blazor.WebApp.Tiered` | Tiered Blazor Web App server-side. | `-u blazor-webapp --tiered`. |
+| `Blazor.WebApp.Tiered.Client` | Tiered Blazor Web App WASM-side companion. | Paired with `Blazor.WebApp.Tiered`. |
+| `Blazor.Client` | Shared Blazor WASM client used by Blazor variants. | Kept whenever a WASM client is in the picture. |
+
+The pruning happens in `AppTemplateBase.GetCustomSteps` (`framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectBuilding/Templates/App/AppTemplateBase.cs`), which calls helpers like `SwitchDatabaseProvider`, `DeleteUnrelatedProjects`, `ConfigureTieredArchitecture`, and `ConfigurePublicWebSite` to remove the projects that should not be in the final solution. `RemoveProjectFromSolutionStep` and `RemoveFolderStep` then drop them from both the `.slnx` and the file tree.
+
+## Switch matrix
+
+| `-u` value | UI project that stays | Companion projects |
+| --- | --- | --- |
+| `mvc` (default) | `Web` (or `Web.Host` when `--tiered`) | `HttpApi.Host` (tiered) / `HttpApi.HostWithIds` (single-host). |
+| `blazor` | `Blazor` (WASM) + `Blazor.Client` | `HttpApi.Host` for API + `AuthServer`. |
+| `blazor-server` | `Blazor.Server` or `Blazor.Server.Tiered` | Tiered variant pulls in `HttpApi.Host` + `AuthServer`. |
+| `blazor-webapp` | `Blazor.WebApp` + `Blazor.WebApp.Client` (or `.Tiered` pair) | Tiered variant adds `HttpApi.Host` + `AuthServer`. |
+| `angular` | _none in this solution_ | `templates/app/angular/` consumed separately; `HttpApi.Host` is kept here. |
+| `none` | _none_ | API + AuthServer only. |
+
+| `-d` value | DB project that stays | DB project removed |
+| --- | --- | --- |
+| `ef` (default) | `EntityFrameworkCore` | `MongoDB` |
+| `mongodb` | `MongoDB` | `EntityFrameworkCore` (and EF-specific files in `DbMigrator`) |
+
+| `--tiered` / `--separate-auth-server` | AuthServer project | API host |
+| --- | --- | --- |
+| _(neither)_ | _omitted_ — auth lives inside `HttpApi.HostWithIds` | `HttpApi.HostWithIds` |
+| `--separate-auth-server` | `AuthServer` kept | `HttpApi.Host` |
+| `--tiered` | `AuthServer` kept | `HttpApi.Host` + a `*.Host` variant of the UI (`Web.Host`, `Blazor.Server.Tiered`, …) |
+
+`--theme` (`leptonx-lite` / `basic` / `leptonx`) does not add or remove projects but swaps the theme package across whichever UI projects survive — implemented by `ChangeThemeStep` and `ThemePackageAdder`.
+
+## Tests
+
+`templates/app/aspnet-core/test/` carries a parallel `*.Tests` project for each `src/` layer (Domain, Application, EntityFrameworkCore/MongoDB, HttpApi.Host…). The same pruning steps that remove an `src/` project also remove its matching test project.
+
+<CardGroup cols={2}>
+  <Card title="Angular front-end" href="/templates/angular">The companion Angular workspace when `-u angular`.</Card>
+  <Card title="No-layers variant" href="/templates/app-nolayers">Single-project rapid-start template.</Card>
+  <Card title="Project building" href="/tooling/project-building">How the pipeline turns these projects into a generated solution.</Card>
+  <Card title="Module template" href="/templates/module">Companion template for reusable modules.</Card>
+</CardGroup>

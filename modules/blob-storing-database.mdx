@@ -1,0 +1,75 @@
+---
+title: "BLOB Storing Database Provider: Store Binary Content in Your DB"
+sidebarTitle: "BLOB DB Provider"
+description: "Database-backed implementation of ABP's BLOB Storing abstraction — persists DatabaseBlobContainer and DatabaseBlob aggregates via EF Core or MongoDB."
+---
+
+This module is one of the concrete providers for ABP's [BLOB Storing](/framework/blob-storing/overview) abstraction. It persists binary content directly in your application database as two aggregates — `DatabaseBlobContainer` and `DatabaseBlob` — using either EF Core or MongoDB. It is the easiest provider to ship for small files, demos and air-gapped deployments; for large files prefer the file-system, Azure, AWS or MinIO providers. Source lives under `/home/daytona/repos/abpframework/abp/modules/blob-storing-database/src/`.
+
+## Packages
+
+| Package | Role |
+| --- | --- |
+| `Volo.Abp.BlobStoring.Database.Domain.Shared` | Constants (`DatabaseBlobConsts.MaxContentLength`, `DatabaseContainerConsts.MaxNameLength`), error codes |
+| `Volo.Abp.BlobStoring.Database.Domain` | Aggregates + `DatabaseBlobProvider` |
+| `Volo.Abp.BlobStoring.Database.EntityFrameworkCore` | EF Core repositories, `BlobStoringDbContext` |
+| `Volo.Abp.BlobStoring.Database.MongoDB` | Mongo repositories and `BlobStoringMongoDbContext` |
+
+## Aggregates
+
+`DatabaseBlobContainer` (`Volo.Abp.BlobStoring.Database.Domain/.../DatabaseBlobContainer.cs`) is a multi-tenant aggregate with `Id`, `TenantId`, `Name`. It corresponds 1:1 to a logical container in the [BLOB Storing API](/framework/blob-storing/overview) (`IBlobContainer<TContainer>`).
+
+`DatabaseBlob` (`DatabaseBlob.cs`) is the file record:
+
+```csharp
+public class DatabaseBlob : AggregateRoot<Guid>, IMultiTenant
+{
+    public virtual Guid ContainerId { get; protected set; }
+    public virtual Guid? TenantId { get; protected set; }
+    public virtual string Name { get; protected set; }
+    [DisableAuditing] public virtual byte[] Content { get; protected set; }
+}
+```
+
+`[DisableAuditing]` on `Content` keeps the entity-change tracker from copying file bytes into the [audit log](/modules/audit-logging). `CheckContentLength` enforces `DatabaseBlobConsts.MaxContentLength` and throws `AbpException` for oversized payloads.
+
+## Provider
+
+`DatabaseBlobProvider` (`DatabaseBlobProvider.cs`) extends `BlobProviderBase` and implements `SaveAsync` / `DeleteAsync` / `ExistsAsync` / `GetOrNullAsync` on top of `IDatabaseBlobRepository` and `IDatabaseBlobContainerRepository`:
+
+```csharp
+public async override Task SaveAsync(BlobProviderSaveArgs args)
+{
+    var container = await GetOrCreateContainerAsync(args.ContainerName, args.CancellationToken);
+    var blob = await DatabaseBlobRepository.FindAsync(container.Id, args.BlobName, args.CancellationToken);
+    var content = await args.BlobStream.GetAllBytesAsync(args.CancellationToken);
+
+    if (blob != null)
+    {
+        if (!args.OverrideExisting) throw new BlobAlreadyExistsException(...);
+        blob.SetContent(content);
+        await DatabaseBlobRepository.UpdateAsync(blob, autoSave: true);
+    }
+    else
+    {
+        blob = new DatabaseBlob(GuidGenerator.Create(), container.Id, args.BlobName, content, CurrentTenant.Id);
+        await DatabaseBlobRepository.InsertAsync(blob, autoSave: true);
+    }
+}
+```
+
+Wire it to a named container in the host:
+
+```csharp
+Configure<AbpBlobStoringOptions>(options =>
+{
+    options.Containers.ConfigureDefault(container =>
+    {
+        container.UseDatabase();
+    });
+});
+```
+
+`UseDatabase()` is the extension in `DatabaseBlobContainerConfigurationExtensions.cs`.
+
+See also: [/framework/blob-storing/overview](/framework/blob-storing/overview) for the higher-level `IBlobContainer` API.

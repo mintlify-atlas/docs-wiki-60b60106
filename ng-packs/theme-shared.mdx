@@ -1,0 +1,116 @@
+---
+title: "@abp/ng.theme.shared — Toasts, Confirmations, Modals"
+sidebarTitle: "theme.shared"
+description: "Theme-agnostic services and primitives every ABP Angular theme builds on: ToasterService, ConfirmationService, modal infrastructure, error pages, extensions metadata."
+---
+
+`@abp/ng.theme.shared` (`npm/ng-packs/packages/theme-shared/`) is the layer between `@abp/ng.core` and the visual themes (`theme-basic`, LeptonX, custom themes). It owns toasts, confirmation dialogs, modal infrastructure, error pages, and the UX-side handlers that listen to `HttpErrorReporterService`.
+
+## Source layout
+
+```
+packages/theme-shared/src/lib/
+├── adapters/
+├── animations/
+├── components/
+│   ├── breadcrumb/, breadcrumb-items/
+│   ├── button/, card/, checkbox/, form-input/, password/
+│   ├── confirmation/, toast/, toast-container/
+│   ├── modal/                 // ModalComponent, modal-close.directive, modal-ref.service
+│   ├── http-error-wrapper/    // full-page error component
+│   ├── internet-connection-status/
+│   ├── loader-bar/, loading/, spinner/
+│   └── ...
+├── directives/
+├── handlers/                  // 401/403/404/500 + tenant-resolve + router error handlers
+├── providers/
+├── services/
+│   ├── toaster.service.ts
+│   ├── confirmation.service.ts
+│   ├── page-alert.service.ts
+│   ├── nav-items.service.ts, user-menu.service.ts, abstract-menu.service.ts
+│   ├── abp-format-error-handler.service.ts
+│   ├── authentication-error-handler.service.ts
+│   ├── router-error-handler.service.ts
+│   ├── status-code-error-handler.service.ts
+│   ├── tenant-resolve-error-handler.service.ts
+│   └── unknown-status-code-error-handler.service.ts
+├── theme-shared.module.ts
+└── tokens/
+```
+
+## ToasterService
+
+`services/toaster.service.ts`:
+
+```typescript
+@Injectable({ providedIn: 'root' })
+export class ToasterService implements ToasterContract {
+  private toasts$ = new ReplaySubject<Toaster.Toast[]>(1);
+  private containerComponentRef!: ComponentRef<ToastContainerComponent>;
+
+  info(message: LocalizationParam, title?: LocalizationParam, options?: Partial<Toaster.ToastOptions>)
+       : Toaster.ToasterId { /* … */ }
+  // success / warn / error / remove / clearAll
+}
+```
+
+It uses `ContentProjectionService` from `@abp/ng.core` (`PROJECTION_STRATEGY.AppendComponentToBody`) to mount a single `ToastContainerComponent` on the document body and feed it through `toasts$`. Messages accept `LocalizationParam` so `'AbpUi::Saved'` keys are resolved automatically.
+
+## ConfirmationService
+
+`services/confirmation.service.ts` follows the same projection pattern but opens a single `ConfirmationComponent`:
+
+```typescript
+@Injectable({ providedIn: 'root' })
+export class ConfirmationService {
+  info(message, title, options?)    : Observable<Confirmation.Status> { /* … */ }
+  success(message, title, options?) : Observable<Confirmation.Status>
+  warn(message, title, options?)    : Observable<Confirmation.Status>
+  error(message, title, options?)   : Observable<Confirmation.Status>
+}
+```
+
+It returns an `Observable<Confirmation.Status>` you subscribe to instead of using a callback API.
+
+## Modal infrastructure
+
+`components/modal/`:
+
+```
+modal.component.ts        // <abp-modal [(visible)] size, busy, options, …>
+modal.component.html
+modal-ref.service.ts      // injected by modal content to control its host
+modal-close.directive.ts  // [abp-close] hooks any button up to dismiss
+```
+
+Module dialogs (create/edit forms, permission management, feature management) declare `<abp-modal>` and let `ModalRef` drive open/close. `[abp-close]` on a button (or `modalCloseDirective`) emits the close intent without the child component needing a reference to its parent — handy for re-used form components.
+
+## Error component & handlers
+
+`HttpErrorWrapperComponent` (`components/http-error-wrapper/`) renders the full-screen 401/403/404/500 page. The `handlers/` and per-status services hook into `HttpErrorReporterService.reporter$` and decide what to do:
+
+- `authentication-error-handler.service` → triggers re-login.
+- `tenant-resolve-error-handler.service` → handles `__tenant` resolution failure.
+- `status-code-error-handler.service` / `unknown-status-code-error-handler.service` → toast or open the error wrapper page.
+
+`abp-format-error-handler.service` overrides Angular's default `ErrorHandler` to also report through the same pipe so uncaught exceptions surface in toasts during dev.
+
+## Extensible-table integration
+
+`@abp/ng.theme.shared` exposes the **extensions** API (`tokens/`, `models/extensions`) that backs the extensible-table/form components in `@abp/ng.components/extensible`. Modules call `extensions.addPropContributors(...)` / `addActionContributors(...)` at module-config time, and the rendered table/form picks the metadata up automatically.
+
+## Page alerts, menus, navbar primitives
+
+- `PageAlertService` — banner-style alerts (info/warning/error) at the top of a page.
+- `NavItemsService` / `UserMenuService` — registries for the side menu and the user dropdown. Themes (`theme-basic`, LeptonX) iterate these to render the chrome.
+- `AbstractMenuService` — base class custom menus extend.
+
+## Cross-links
+
+<CardGroup cols={2}>
+  <Card title="theme-basic" href="/ng-packs/theme-basic">Default theme that consumes these primitives</Card>
+  <Card title="core" href="/ng-packs/core">HttpErrorReporter source of error events</Card>
+  <Card title="components" href="/ng-packs/components">Extensible table/form metadata</Card>
+  <Card title="account" href="/ng-packs/account">Opens login flows through the modal stack</Card>
+</CardGroup>

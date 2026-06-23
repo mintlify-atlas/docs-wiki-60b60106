@@ -1,0 +1,70 @@
+---
+title: "Image Compression and Resizing Across Engines"
+sidebarTitle: "Imaging"
+description: "Compose ImageSharp, Magick.NET, or SkiaSharp behind IImageCompressor and IImageResizer, plus ASP.NET Core action-filter shortcuts."
+---
+
+`Volo.Abp.Imaging.Abstractions` defines two interfaces — `IImageCompressor` and `IImageResizer` — that fan out to one or more **contributor** implementations. Provider packages register contributors for the formats they support; the dispatcher tries each in turn until one returns `ImageProcessState.Done`.
+
+## Interfaces
+
+```csharp framework/src/Volo.Abp.Imaging.Abstractions/Volo/Abp/Imaging/IImageResizer.cs
+public interface IImageResizer
+{
+    Task<ImageResizeResult<Stream>> ResizeAsync(Stream stream,
+        ImageResizeArgs resizeArgs, string? mimeType = null,
+        CancellationToken cancellationToken = default);
+
+    Task<ImageResizeResult<byte[]>> ResizeAsync(byte[] bytes,
+        ImageResizeArgs resizeArgs, string? mimeType = null,
+        CancellationToken cancellationToken = default);
+}
+```
+
+```csharp framework/src/Volo.Abp.Imaging.Abstractions/Volo/Abp/Imaging/IImageCompressor.cs
+public interface IImageCompressor
+{
+    Task<ImageCompressResult<Stream>> CompressAsync(Stream stream,
+        string? mimeType = null, CancellationToken cancellationToken = default);
+
+    Task<ImageCompressResult<byte[]>> CompressAsync(byte[] bytes,
+        string? mimeType = null, CancellationToken cancellationToken = default);
+}
+```
+
+`ImageResizeArgs` (width/height/mode) drives the resize behaviour; `ImageResizeMode` lives in `framework/src/Volo.Abp.Imaging.Abstractions/Volo/Abp/Imaging/ImageResizeMode.cs`. Both return an `Image{Compress|Resize}Result<T>` carrying the result plus a `ImageProcessState` discriminator (`Done` / `Unsupported` / `Canceled` / `Failed`).
+
+## Provider packages
+
+| Package | Module | Implementations |
+| --- | --- | --- |
+| `Volo.Abp.Imaging.ImageSharp` | `AbpImagingImageSharpModule` | `ImageSharpImageResizerContributor`, `ImageSharpImageCompressorContributor`, plus `ImageSharpCompressOptions` |
+| `Volo.Abp.Imaging.MagickNet` | `AbpImagingMagickNetModule` | `MagickImageResizerContributor`, `MagickImageCompressorContributor`, plus `MagickNetCompressOptions` |
+| `Volo.Abp.Imaging.SkiaSharp` | `AbpImagingSkiaSharpModule` | `SkiaSharpImageResizerContributor`, `SkiaSharpImageCompressorContributor`, plus `SkiaSharpCompressOptions` and `SkiaSharpResizerOptions` |
+
+Each provider's contributors live next to its module under `framework/src/Volo.Abp.Imaging.{Name}/Volo/Abp/Imaging/`. You can reference more than one package and they'll co-exist behind the same `IImageCompressor`/`IImageResizer`.
+
+## ASP.NET Core action filters
+
+`Volo.Abp.Imaging.AspNetCore` ships two `ActionFilterAttribute`s that run the configured providers against uploaded files transparently:
+
+```csharp framework/src/Volo.Abp.Imaging.AspNetCore/Volo/Abp/Imaging/CompressImageAttribute.cs
+public class CompressImageAttribute : ActionFilterAttribute
+{
+    public CompressImageAttribute(params string[] parameters) { ... }
+
+    public async override Task OnActionExecutionAsync(...)
+    {
+        // For every IFormFile / IRemoteStreamContent / Stream / byte[] parameter,
+        // call IImageCompressor.CompressAsync and replace the action argument.
+    }
+}
+```
+
+`ResizeImageAttribute(uint width, uint height, params string[] parameters)` does the same with `IImageResizer.ResizeAsync`, walking the same parameter type list (`IFormFile`, `IRemoteStreamContent`, `Stream`, `IEnumerable<byte>`). Both attributes early-out when `ContentType` is not `image/*`, leaving non-image uploads untouched.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="BLOB Storing" icon="boxes-stacked" href="/framework/blob-storing/overview" />
+</CardGroup>

@@ -1,0 +1,70 @@
+---
+title: "CMS Kit Browser Packs — admin, public, and blogging"
+sidebarTitle: "CMS Kit Packs"
+description: "How @abp/cms-kit splits into admin (Markdown / image editors) and public (highlighting, star ratings) packs, plus the carousel + prism @abp/blogging meta."
+---
+
+The CMS Kit module ships its browser-side asset graph as four small
+meta-packages under `npm/packs/`. They follow the same "package.json with
+nothing but dependencies" pattern as the MVC theming bundles.
+
+```json
+// npm/packs/cms-kit/package.json
+"name": "@abp/cms-kit",
+"dependencies": {
+  "@abp/cms-kit.admin":  "~10.5.0-rc.4",
+  "@abp/cms-kit.public": "~10.5.0-rc.4"
+}
+```
+
+## @abp/cms-kit.admin — content authoring
+
+```json
+// npm/packs/cms-kit.admin/package.json
+"dependencies": {
+  "@abp/codemirror":  "~10.5.0-rc.4",
+  "@abp/jstree":      "~10.5.0-rc.4",
+  "@abp/markdown-it": "~10.5.0-rc.4",
+  "@abp/slugify":     "~10.5.0-rc.4",
+  "@abp/tui-editor":  "~10.5.0-rc.4",
+  "@abp/uppy":        "~10.5.0-rc.4"
+}
+```
+
+- `@abp/tui-editor` + `@abp/markdown-it` — Toast UI Markdown editor + renderer.
+- `@abp/codemirror` — code blocks inside the editor.
+- `@abp/slugify` — URL slug suggestions for pages.
+- `@abp/jstree` — tree control for the menu / page hierarchy.
+- `@abp/uppy` — media library uploads.
+
+## @abp/cms-kit.public — read-side rendering
+
+```json
+// npm/packs/cms-kit.public/package.json
+"dependencies": {
+  "@abp/highlight.js":    "~10.5.0-rc.4",
+  "@abp/star-rating-svg": "~10.5.0-rc.4"
+}
+```
+
+The public site only needs Highlight.js (fenced code blocks in rendered
+Markdown) and the star-rating widget.
+
+## @abp/blogging — the Blogging module bundle
+
+```json
+// npm/packs/blogging/package.json
+"dependencies": {
+  "@abp/aspnetcore.mvc.ui.theme.shared": "~10.5.0-rc.4",
+  "@abp/owl.carousel": "~10.5.0-rc.4",
+  "@abp/prismjs":      "~10.5.0-rc.4",
+  "@abp/tui-editor":   "~10.5.0-rc.4"
+}
+```
+
+The legacy Blogging module (predating CMS Kit) pulls the full MVC vendor
+bundle plus Owl Carousel (homepage sliders), PrismJS (code blocks), and Toast
+UI Editor (post authoring).
+
+See [vendor libraries](/npm-packs/vendor-libraries) for the underlying packs
+and [`npm/packs` overview](/npm-packs/overview) for the broader asset graph.

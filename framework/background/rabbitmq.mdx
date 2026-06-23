@@ -1,0 +1,56 @@
+---
+title: "RabbitMQ Provider for ABP Background Jobs"
+sidebarTitle: "RabbitMQ"
+description: "Drop-in IBackgroundJobManager backed by RabbitMQ queues with per-job-args queue routing, delayed dispatch via DLX, and configurable prefetch."
+---
+
+`Volo.Abp.BackgroundJobs.RabbitMQ` swaps the default in-process job manager for one that publishes to RabbitMQ. Each job-args type maps to its own queue (plus a paired delayed queue), so dispatch is decoupled from your application processes.
+
+## RabbitMqBackgroundJobManager
+
+```csharp framework/src/Volo.Abp.BackgroundJobs.RabbitMQ/Volo/Abp/BackgroundJobs/RabbitMQ/RabbitMqBackgroundJobManager.cs
+[Dependency(ReplaceServices = true)]
+public class RabbitMqBackgroundJobManager : IBackgroundJobManager, ITransientDependency
+{
+    public async Task<string> EnqueueAsync<TArgs>(TArgs args,
+        BackgroundJobPriority priority = BackgroundJobPriority.Normal,
+        TimeSpan? delay = null)
+    {
+        var jobQueue = await _jobQueueManager.GetAsync<TArgs>();
+        return (await jobQueue.EnqueueAsync(args, priority, delay))!;
+    }
+}
+```
+
+The manager resolves an `IJobQueue` per args type from `IJobQueueManager` and delegates enqueueing. Queues are created lazily and cached.
+
+## Queue configuration
+
+`AbpRabbitMqBackgroundJobOptions` controls naming and prefetch defaults; per-type overrides live in `JobQueueConfiguration`.
+
+```csharp framework/src/Volo.Abp.BackgroundJobs.RabbitMQ/Volo/Abp/BackgroundJobs/RabbitMQ/AbpRabbitMqBackgroundJobOptions.cs
+public Dictionary<Type, JobQueueConfiguration> JobQueues { get; }
+public string DefaultQueueNamePrefix { get; set; }        // "AbpBackgroundJobs."
+public string DefaultDelayedQueueNamePrefix { get; set; } // "AbpBackgroundJobsDelayed."
+public ushort? PrefetchCount { get; set; }
+```
+
+A `JobQueueConfiguration` extends `QueueDeclareConfiguration` and additionally declares a **delayed queue** that uses RabbitMQ's dead-letter-exchange pattern to defer messages:
+
+```csharp framework/src/Volo.Abp.BackgroundJobs.RabbitMQ/Volo/Abp/BackgroundJobs/RabbitMQ/JobQueueConfiguration.cs
+var delayedArguments = new Dictionary<string, object?>(Arguments)
+{
+    ["x-dead-letter-routing-key"] = QueueName,
+    ["x-dead-letter-exchange"] = string.Empty
+};
+```
+
+When `delay` is non-null the message is published to the delayed queue with a per-message TTL; on expiry RabbitMQ DLX-forwards it to the primary queue for consumption.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Background Jobs" icon="briefcase" href="/framework/background/background-jobs" />
+  <Card title="Hangfire" icon="fire" href="/framework/background/hangfire" />
+  <Card title="Quartz" icon="clock" href="/framework/background/quartz" />
+</CardGroup>

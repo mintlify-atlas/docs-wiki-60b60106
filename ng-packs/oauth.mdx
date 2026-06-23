@@ -1,0 +1,76 @@
+---
+title: "@abp/ng.oauth — angular-oauth2-oidc Integration"
+sidebarTitle: "OAuth"
+description: "How @abp/ng.oauth wraps angular-oauth2-oidc with code/password flow strategies, an HTTP interceptor, route guards, and DI providers that plug into @abp/ng.core."
+---
+
+`@abp/ng.oauth` is the Angular adapter between ABP's `IAuthService` contract (from
+`@abp/ng.core`) and the third-party
+[angular-oauth2-oidc](https://github.com/manfredsteyer/angular-oauth2-oidc) library.
+It picks a flow at startup based on `oAuthConfig.responseType`, attaches bearer
+tokens to outgoing API calls, and guards routes against missing access tokens —
+all wired in via a single `provideAbpOAuth()` call. Source lives under
+`npm/ng-packs/packages/oauth/src/lib/`.
+
+```json
+// npm/ng-packs/packages/oauth/package.json
+"name": "@abp/ng.oauth",
+"dependencies": {
+  "@abp/ng.core": "~10.5.0-rc.4",
+  "angular-oauth2-oidc": "^20.0.0"
+}
+```
+
+## AbpOAuthService
+
+`services/oauth.service.ts` implements `IAuthService` and delegates to the
+underlying `OAuthService`. It chooses a strategy during `init()`:
+
+```typescript
+this.strategy = oAuthConfig.responseType === 'code'
+  ? AUTH_FLOW_STRATEGY.Code(this.injector)
+  : AUTH_FLOW_STRATEGY.Password(this.injector);
+```
+
+Public methods are thin pass-throughs: `isAuthenticated`,
+`getAccessToken/getRefreshToken/getAccessTokenExpiration`, `login`, `logout`,
+`refreshToken`, and `loginUsingGrant(grantType, parameters, headers?)` for
+external login providers (calls `oAuthService.fetchTokenUsingGrant`).
+
+## Strategies
+
+- **`AuthCodeFlowStrategy`** (`strategies/auth-code-flow-strategy.ts`) — used
+  when `responseType: 'code'`. Calls `tryLogin()` + `setupAutomaticSilentRefresh()`
+  and strips `iss`, `culture`, `ui-culture` query params from the URL.
+- **`AuthPasswordFlowStrategy`** (`strategies/auth-password-flow-strategy.ts`) —
+  sets `isInternalAuth = true`, listens for `OAuthInfoEvent.token_expires`, and
+  either refreshes or logs out.
+
+## HTTP interceptor & guard
+
+`interceptors/api.interceptor.ts` adds `Authorization: Bearer <token>`,
+`Accept-Language`, `__tenant`, and `X-Requested-With: XMLHttpRequest` to every
+non-external request, wrapped in `HttpWaitService` for the loading spinner.
+`guards/oauth.guard.ts` exports `AbpOAuthGuard` (class) and `abpOAuthGuard`
+(functional). On the browser it falls back to `authService.navigateToLogin`;
+on the server it mutates `RESPONSE_INIT` to emit a 302 to
+`oAuthConfig.ssrAuthorizationUrl`.
+
+## Wiring it in
+
+```typescript
+// app.config.ts
+import { provideAbpOAuth } from '@abp/ng.oauth';
+
+export const appConfig: ApplicationConfig = {
+  providers: [provideAbpOAuth() /* … */],
+};
+```
+
+`provideAbpOAuth` (in `providers/oauth-module-config.provider.ts`) registers
+`AuthService → AbpOAuthService`, `ApiInterceptor → OAuthApiInterceptor`,
+`OAuthModule.forRoot()` from `angular-oauth2-oidc`, and an `OAuthStorage` chosen
+by `oAuthStorageFactory` (browser ∣ server ∣ memory).
+
+See [`@abp/ng.core`](/ng-packs/core) for `IAuthService` / `SessionStateService`
+and [`@abp/ng.account`](/ng-packs/account) for the login UI.

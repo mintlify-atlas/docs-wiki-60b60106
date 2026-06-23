@@ -1,0 +1,93 @@
+---
+title: "GitHub Workflows: Full ABP CI/CD Reference"
+sidebarTitle: "GitHub Workflows"
+description: "Every workflow under .github/workflows in the ABP repo — when it triggers, what it runs, the secrets it needs, and how it interlocks with releases."
+---
+
+The ABP repo runs thirteen GitHub Actions workflows that cover .NET build/test, Angular build/test, CodeQL security scanning, docs validation, image compression, dependency-change detection, auto-PR/merge automation, release tagging, version updates, and downstream Studio docs sync. This page is a complete reference: every file under `.github/workflows/` with its triggers, jobs, and purpose.
+
+## Workflow table
+
+| File | Triggers (`on:`) | Purpose |
+| --- | --- | --- |
+| `angular.yml` | `pull_request` on `dev` / `rel-*` for `npm/ng-packs/**` `*.ts`/`*.html`/`*.json` (excluding scripts/schematics) | Single job `build-test-lint` on `ubuntu-latest` — caches `node_modules`, runs the Lerna build/test/lint chain for Angular packs. Skips drafts. Concurrency groups by workflow+ref with cancel-in-progress. |
+| `auto-add-seo.yml` | `pull_request` `closed` on `dev`/`rel-*` for `docs/en/**/*.md` (only when merged, branch ≠ `auto-docs-seo/*`) | `add-seo-descriptions` job uses Python + OpenAI to back-fill missing SEO descriptions on the changed markdown files, opens a follow-up PR with the rewrites. |
+| `auto-pr.yml` | `push` to `rel-10.5` | `merge-dev-with-rel-10-5` checks out `dev`, resets against `rel-10.5`, opens an auto-merge PR with `peter-evans/create-pull-request@v3`, then approves and `gh pr merge --auto --merge --delete-branch`. Mechanism for forward-porting `dev` into the release branch. |
+| `build-and-test.yml` | `push` to `dev` (`framework/**`, `modules/**`, `templates/**`, `Directory.Build.props`, `Directory.Packages.props`); `pull_request` to `dev` and `rel-*` with the same path filter | Main CI. `build-test` job on `ubuntu-22.04`, 50-minute timeout. Frees disk space, installs PowerShell, sets up .NET 10.0.x, caches `~/.nuget/packages`, runs `./build-all.ps1` from `./build`. Concurrency cancels older runs. |
+| `cancel-workflow.yml` | `workflow_dispatch` only (manual) | **Intentionally disabled** — file kept as documentation. Cancellation is now handled per-workflow via `concurrency` blocks; this exists so someone searching for "cancel-workflow-action" finds the explanation. |
+| `check-docs-syntax.yml` | `pull_request` on `docs/en/**/*.md`, `docs/en/docs-params.json`, `.github/scripts/CheckDocsSyntax/**` | `check-scriban-syntax` job builds `.github/scripts/CheckDocsSyntax/CheckDocsSyntax.csproj` with .NET 10, then validates Scriban templating in changed markdown files. Posts a PR comment on failure. |
+| `codeql-analysis.yml` | `push` on `dev`/`rel-*` for `abp/**/*.cs`/`*.cshtml`/`*.csproj`/`*.razor`/`*.js`; `pull_request` to `dev` with same paths | `analyze` job, matrix `language: [csharp, javascript]`, uses `github/codeql-action/init` + `autobuild` + `analyze`. Posts security alerts on the Security tab. Concurrency cancels in-progress duplicates. |
+| `image-compression.yml` | `pull_request` opened/synced for `*.jpg`/`*.jpeg`/`*.png`/`*.webp`/`*.gif` (PRs from forks excluded by `head.repo.full_name == github.repository`) | `build` job uses `calibreapp/image-actions@main` to losslessly compress changed images in-place and commit back. |
+| `labeler.yml` | `schedule: cron '0 12 */1 * *'` (daily at 12:00 UTC) | `labeler` job runs `paulfantom/periodic-labeler@master` to apply stale/triage labels to open PRs based on `.github/labeler.yml` rules. |
+| `nuget-packages-version-change-detector.yml` | `pull_request` on `Directory.Packages.props` (non-draft, non-fork, non-`auto-merge/*`) | `label` job adds the `dependency-change` label via `gh pr edit`, diffs the old/new package versions, and commits an updated `docs/en/package-version-changes.md` back onto the PR branch using the `MLM_Token` secret. |
+| `publish-release.yml` | `workflow_dispatch` with inputs `tag_name`, `prerelease`, `branchName` | `build` job uses `actions/create-release@v1` (with `RELEASE_TOKEN` secret) to create a GitHub release. Checks out at `branchName`, then re-checks out at the new tag. The build step is a placeholder (`echo "Build project here"`) — this workflow only tags; actual NuGet/npm publishing happens via the local `deploy/*.ps1` flow. |
+| `update-studio-docs.yml` | `repository_dispatch` `[update_studio_docs]` from the ABP Studio repo, or `workflow_dispatch` with `version`/`name`/`notes`/`url`/`target_branch` inputs | `update-docs` job extracts the payload, regenerates the Studio release-notes markdown, opens a PR with the changes against the matching `rel-*` branch (auto-detected from the latest stable ABP release). Uses GitHub Models for note formatting. |
+| `update-versions.yml` | `release: types: [published]` | `update-versions` job runs `.github/scripts/update_versions.py` (PyGithub) to refresh `latest-versions.json` at the repo root, then opens a PR with `RELEASE_TOKEN`. Keeps the CLI's "latest stable" lookup in sync. |
+
+## Workflow groups
+
+### Pull-request gates
+
+The CI signal a PR must clear before merge is the combination of:
+
+- **`build-and-test.yml`** — backend Build + Test (its job name is "build and test").
+- **`angular.yml`** — frontend Build/Test/Lint (Angular packs only — skipped if no `npm/ng-packs/**` files changed).
+- **`check-docs-syntax.yml`** — Scriban template validity (docs-only PRs).
+- **`codeql-analysis.yml`** — Security scan (csharp + javascript matrix).
+
+All four use `concurrency.group: ${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true`, so pushing a new commit to a PR auto-cancels the previous run.
+
+### Automation bots
+
+- **`auto-pr.yml`** keeps `rel-10.5` in lockstep with `dev` by opening, approving, and auto-merging a PR after every push to `rel-10.5`.
+- **`auto-add-seo.yml`** runs only on **merged** docs PRs to bolt SEO descriptions onto the front matter of changed markdown files.
+- **`labeler.yml`** scheduled daily labelling pass.
+- **`nuget-packages-version-change-detector.yml`** turns every PR that touches `Directory.Packages.props` into a documented change with an auto-generated `package-version-changes.md` diff.
+- **`image-compression.yml`** rewrites image attachments in place.
+
+### Release plumbing
+
+- **`publish-release.yml`** — manual tag-create, paired with the local `deploy/*.ps1` scripts. The actual NuGet/npm push happens outside Actions (see [Scripts](/build/scripts)).
+- **`update-versions.yml`** — runs on every published release, bumping `latest-versions.json`.
+- **`update-studio-docs.yml`** — cross-repo trigger from ABP Studio, automatically syncs the Studio's release notes into this docs tree.
+
+## Permissions snapshot
+
+| Workflow | `contents` | `pull-requests` | Other |
+| --- | --- | --- | --- |
+| `angular.yml` | `read` | — | — |
+| `auto-add-seo.yml` | `write` | `write` | uses `GITHUB_TOKEN` |
+| `auto-pr.yml` | `write` (job-level) | `write` | uses `BOT_SECRET` for `gh pr merge --auto` |
+| `build-and-test.yml` | `read` | — | `id-token: write` for OIDC |
+| `check-docs-syntax.yml` | `read` | `write` (comment) | — |
+| `codeql-analysis.yml` | `read` (job-level: `actions: read`, `security-events: write`) | — | — |
+| `image-compression.yml` | (default) | (default) | — |
+| `labeler.yml` | `read` (top) | `write` (job-level) | — |
+| `nuget-packages-version-change-detector.yml` | `write` (job-level) | `write` | `MLM_Token` |
+| `publish-release.yml` | (default) | (default) | `RELEASE_TOKEN` |
+| `update-studio-docs.yml` | `write` | `write` | `models: read` |
+| `update-versions.yml` | `write` | `write` | `RELEASE_TOKEN` |
+
+## Secrets referenced
+
+| Secret | Used by | Purpose |
+| --- | --- | --- |
+| `GITHUB_TOKEN` | most | Default token for ops on the same repo |
+| `BOT_SECRET` | `auto-pr.yml` | Cross-PR approval (the default token cannot self-approve) |
+| `MLM_Token` | `nuget-packages-version-change-detector.yml` | Push the doc commit back onto the PR branch |
+| `RELEASE_TOKEN` | `publish-release.yml`, `update-versions.yml` | Tag + release + cross-branch PRs |
+| `OPENAI_API_KEY` | `auto-add-seo.yml` | SEO description generation |
+
+## CI hardware
+
+- `ubuntu-22.04` — `build-and-test.yml` (pinned to match `dotnet-install` availability matrix).
+- `ubuntu-latest` — every other workflow.
+- No Windows or macOS runners are used; the `templates/wpf` build (Windows-only in `build/common.ps1`) is therefore developer-local.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Build Scripts" href="/build/scripts">PowerShell entry points the CI invokes.</Card>
+  <Card title="Build Overview" href="/build/overview">Conventions the CI assumes.</Card>
+  <Card title="NuGet & npm" href="/build/nuget-and-npm">What happens during a release after the CI tags.</Card>
+</CardGroup>

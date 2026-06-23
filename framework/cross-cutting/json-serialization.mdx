@@ -1,0 +1,124 @@
+---
+title: "JSON serialization: System.Text.Json and Newtonsoft"
+sidebarTitle: "JSON Serialization"
+description: "IJsonSerializer abstraction, the AbpJsonOptions date-format knobs, and the two shipped providers with their ABP-aware converters."
+---
+
+`Volo.Abp.Json` is the JSON abstraction every ABP module talks to. It is a thin interface that two provider modules (`SystemTextJson` and `Newtonsoft`) implement, plus a single options class for date-format inputs. The default provider is System.Text.Json; pulling in `Volo.Abp.Json.Newtonsoft` replaces it for the whole application.
+
+## `IJsonSerializer`
+
+```csharp
+// framework/src/Volo.Abp.Json.Abstractions/Volo/Abp/Json/IJsonSerializer.cs
+public interface IJsonSerializer
+{
+    string  Serialize(object obj, bool camelCase = true, bool indented = false);
+    T       Deserialize<T>(string jsonString, bool camelCase = true);
+    object  Deserialize(Type type, string jsonString, bool camelCase = true);
+}
+```
+
+`camelCase` defaults to `true` so APIs match the modern JS convention; the EF Core integration calls `Serialize(value, camelCase: false)` when persisting JSON-mapped extra properties to keep server-side column names intact.
+
+## `AbpJsonOptions`
+
+```csharp
+// AbpJsonOptions.cs
+public class AbpJsonOptions
+{
+    public List<string> InputDateTimeFormats { get; set; } = new();   // accepted formats on read
+    public string? OutputDateTimeFormat { get; set; }                  // null → provider default (ISO 8601)
+}
+```
+
+Both providers honour these:
+
+- `InputDateTimeFormats` is consulted by the `AbpDateTimeConverter` / `AbpNullableDateTimeConverter` types so multiple input shapes ("2024-01-02", "01/02/2024") deserialize correctly.
+- `OutputDateTimeFormat` overrides the writer format on the same converters.
+
+Setting `OutputDateTimeFormat = "yyyy-MM-ddTHH:mm:ssZ"` is the typical knob for clients that cannot parse fractional seconds.
+
+## System.Text.Json provider
+
+`Volo.Abp.Json.SystemTextJson` (`framework/src/Volo.Abp.Json.SystemTextJson/`) is referenced by the meta-module `Volo.Abp.Json`:
+
+```csharp
+// Volo.Abp.Json/Volo/Abp/Json/AbpJsonModule.cs
+[DependsOn(typeof(AbpJsonSystemTextJsonModule))]
+public class AbpJsonModule : AbpModule { }
+```
+
+`AbpSystemTextJsonSerializer` (`AbpSystemTextJsonSerializer.cs`) wraps `System.Text.Json.JsonSerializer` and caches options per `(camelCase, indented, base options)` tuple:
+
+```csharp
+protected virtual JsonSerializerOptions CreateJsonSerializerOptions(bool camelCase = true, bool indented = false)
+    => JsonSerializerOptionsCache.GetOrAdd(new { camelCase, indented, Options.JsonSerializerOptions },
+        _ => new JsonSerializerOptions(Options.JsonSerializerOptions)
+        {
+            PropertyNamingPolicy = camelCase ? JsonNamingPolicy.CamelCase : null,
+            WriteIndented = indented
+        });
+```
+
+`AbpJsonSystemTextJsonModule` configures the underlying `JsonSerializerOptions`:
+
+```csharp
+options.JsonSerializerOptions.Encoder ??= JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+options.JsonSerializerOptions.Converters.Add(new AbpStringToEnumFactory());
+options.JsonSerializerOptions.Converters.Add(new AbpStringToBooleanConverter());
+options.JsonSerializerOptions.Converters.Add(new AbpStringToGuidConverter());
+options.JsonSerializerOptions.Converters.Add(new AbpNullableStringToGuidConverter());
+options.JsonSerializerOptions.Converters.Add(new ObjectToInferredTypesConverter());
+
+options.JsonSerializerOptions.TypeInfoResolver = new AbpDefaultJsonTypeInfoResolver(modifiersOptions);
+// + AbpDateTimeConverterModifier injects AbpDateTimeConverter / AbpNullableDateTimeConverter
+```
+
+| Converter | File | Behaviour |
+| --- | --- | --- |
+| `AbpStringToEnumFactory` | `JsonConverters/AbpStringToEnumFactory.cs` | Lets enums round-trip as either their numeric value or member name. |
+| `AbpStringToBooleanConverter` | `JsonConverters/AbpStringToBooleanConverter.cs` | Accepts `"true"`/`"false"` strings as booleans (common in HTML forms). |
+| `AbpStringToGuidConverter` / `AbpNullableStringToGuidConverter` | `JsonConverters/AbpNullableStringToGuidConverter.cs` | Parses empty string as `null` and 32-char hex as `Guid`. |
+| `ObjectToInferredTypesConverter` | `JsonConverters/ObjectToInferredTypesConverter.cs` | When the target is `object`, infers `int`/`long`/`bool`/`DateTime`/`string` instead of `JsonElement`. |
+| `AbpDateTimeConverter` / `AbpNullableDateTimeConverter` | `JsonConverters/AbpDateTimeConverter.cs` etc. | Reads `AbpJsonOptions.InputDateTimeFormats`, applies `OutputDateTimeFormat`, optionally normalises through `IClock`. |
+| `AbpDefaultJsonTypeInfoResolver` | `AbpDefaultJsonTypeInfoResolver.cs` | Adds modifier hooks for entity-extending and date-time conversion without rebuilding the whole `JsonSerializerOptions`. |
+
+`AbpSystemTextJsonSerializerOptions` exposes the underlying `JsonSerializerOptions`. The base defaults are `JsonSerializerDefaults.Web` with `ReadCommentHandling = Skip` and `AllowTrailingCommas = true` — relaxed enough for hand-edited configuration files.
+
+`AbpSystemTextJsonSerializerModifiersOptions` is the modifier pipeline; add `IJsonTypeInfoModifier`s to apply contract-level changes (e.g. ignore properties decorated with a custom attribute) without writing a converter per type.
+
+## Newtonsoft provider
+
+`Volo.Abp.Json.Newtonsoft` (`framework/src/Volo.Abp.Json.Newtonsoft/`) ships an alternative implementation. `AbpNewtonsoftJsonSerializer` is registered with `[Dependency(ReplaceServices = true)]`, so referencing the module overrides `IJsonSerializer` in the container:
+
+```csharp
+[Dependency(ReplaceServices = true)]
+public class AbpNewtonsoftJsonSerializer : IJsonSerializer, ITransientDependency
+{
+    public string Serialize(object obj, bool camelCase = true, bool indented = false)
+        => JsonConvert.SerializeObject(obj, CreateJsonSerializerOptions(camelCase, indented));
+    // …
+}
+```
+
+`AbpNewtonsoftJsonSerializerOptions` exposes `JsonSerializerSettings`; the module installs:
+
+- `AbpCamelCasePropertyNamesContractResolver` and `AbpDefaultContractResolver` — apply ABP defaults plus the modifier pipeline.
+- `AbpDateTimeConverter` (Newtonsoft variant) — honours `AbpJsonOptions.InputDateTimeFormats` / `OutputDateTimeFormat`.
+
+Pick Newtonsoft when integrating with a third-party library whose contract resolvers are Newtonsoft-only (Hangfire dashboards, older OpenAPI tooling). The ASP.NET Core MVC layer has its own dedicated module — `Volo.Abp.AspNetCore.Mvc.NewtonsoftJson` — that swaps MVC's JSON formatter as well so HTTP payloads use the same converters as `IJsonSerializer`.
+
+## Practical recipes
+
+- **Customise globally.** `Configure<AbpSystemTextJsonSerializerOptions>(o => o.JsonSerializerOptions.Converters.Add(new MyConverter()));` — added before any `AbpSystemTextJsonSerializer` is constructed.
+- **Per-call overrides.** When you need different settings for one payload, build a `JsonSerializerOptions` locally; reach for `JsonSerializer.Serialize(obj, options)` only inside that hot path.
+- **Pretty printing for logs.** `_jsonSerializer.Serialize(obj, indented: true)` — both providers honour the flag.
+- **Disable camelCase.** `_jsonSerializer.Serialize(obj, camelCase: false)` keeps PascalCase property names when interop demands it.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Caching" href="/framework/cross-cutting/caching" />
+  <Card title="Object mapping" href="/framework/cross-cutting/object-mapping" />
+  <Card title="Auditing (entity history serialisation)" href="/framework/cross-cutting/auditing" />
+</CardGroup>

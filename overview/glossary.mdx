@@ -1,0 +1,107 @@
+---
+title: "ABP Glossary — Modules, Services, DDD & Cross-Cutting"
+sidebarTitle: "Glossary"
+description: "Definitions of every core ABP type — modules, DI markers, DDD bases, repositories, event bus, jobs, multi-tenancy — pinned to a source file."
+---
+
+This glossary is the canonical short-form reference for terms used across the ABP Framework wiki. Every entry pairs a one-line definition with the file under `framework/src/` that declares it, so coding agents can jump straight to the source. Entries are grouped by concern (modularity, DI, DDD, eventing, infrastructure) but ordered alphabetically inside each group.
+
+## Modularity & Bootstrap
+
+| Term | Definition | Source |
+| --- | --- | --- |
+| **AbpModule** | Abstract base class every ABP module extends. Hosts `PreConfigureServices`, `ConfigureServices`, `PostConfigureServices`, `OnPreApplicationInitialization`, `OnApplicationInitialization`, `OnPostApplicationInitialization`, `OnApplicationShutdown`. | `framework/src/Volo.Abp.Core/Volo/Abp/Modularity/AbpModule.cs` |
+| **DependsOnAttribute** | Class-level attribute that declares transitive module dependencies; implements `IDependedTypesProvider`. | `framework/src/Volo.Abp.Core/Volo/Abp/Modularity/DependsOnAttribute.cs` |
+| **IAbpApplication** | Composition root that owns the `IServiceCollection`, `IServiceProvider`, `StartupModuleType`, and provides `ConfigureServicesAsync`/`ShutdownAsync`. | `framework/src/Volo.Abp.Core/Volo/Abp/IAbpApplication.cs` |
+| **ServiceConfigurationContext** | Argument passed to `ConfigureServices`; exposes `Services` and a key/value `Items` bag for cross-module wiring. | `framework/src/Volo.Abp.Core/Volo/Abp/Modularity/ServiceConfigurationContext.cs` |
+
+## Dependency Injection
+
+| Term | Definition | Source |
+| --- | --- | --- |
+| **IConventionalRegistrar** | Pluggable scanner contract with `AddAssembly`/`AddTypes`/`AddType`; ABP registers a default registrar plus per-module ones (e.g. repositories). | `framework/src/Volo.Abp.Core/Volo/Abp/DependencyInjection/IConventionalRegistrar.cs` |
+| **ITransientDependency** | Marker interface — implementing it makes a class auto-registered with `ServiceLifetime.Transient` by `DefaultConventionalRegistrar`. | `framework/src/Volo.Abp.Core/Volo/Abp/DependencyInjection/ITransientDependency.cs` |
+| **IScopedDependency** | Marker interface for `ServiceLifetime.Scoped` auto-registration. | `framework/src/Volo.Abp.Core/Volo/Abp/DependencyInjection/IScopedDependency.cs` |
+| **ISingletonDependency** | Marker interface for `ServiceLifetime.Singleton` auto-registration. | `framework/src/Volo.Abp.Core/Volo/Abp/DependencyInjection/ISingletonDependency.cs` |
+| **DependencyAttribute** | Overrides lifetime via `Lifetime` and toggles `TryRegister` / `ReplaceServices` semantics during conventional registration. | `framework/src/Volo.Abp.Core/Volo/Abp/DependencyInjection/DependencyAttribute.cs` |
+| **ExposeServicesAttribute** | Declares the service contracts a class should be registered as (with `IncludeDefaults`, `IncludeSelf` flags). | `framework/src/Volo.Abp.Core/Volo/Abp/DependencyInjection/ExposeServicesAttribute.cs` |
+| **IObjectAccessor\<T\>** | Singleton holder for an object whose value is set after `ServiceCollection` is built; used to bridge build-time and runtime state. | `framework/src/Volo.Abp.Core/Volo/Abp/DependencyInjection/ObjectAccessor.cs` |
+
+## Unit of Work, Filters & Auditing
+
+| Term | Definition | Source |
+| --- | --- | --- |
+| **IUnitOfWork** | Transactional scope: contains `Items`, `DatabaseApi`/`TransactionApi` registries, `SaveChangesAsync`, `CompleteAsync`, `RollbackAsync`, and `Failed`/`Disposed` events. | `framework/src/Volo.Abp.Uow/Volo/Abp/Uow/IUnitOfWork.cs` |
+| **AmbientUnitOfWork** | `IAmbientUnitOfWork` + `IUnitOfWorkAccessor` singleton storing the current UoW in an `AsyncLocal<IUnitOfWork?>`. | `framework/src/Volo.Abp.Uow/Volo/Abp/Uow/AmbientUnitOfWork.cs` |
+| **IDataFilter** | Toggle for global query filters such as `ISoftDelete` / `IMultiTenant`; nested `Enable<TFilter>()`/`Disable<TFilter>()` scopes. | `framework/src/Volo.Abp.Data/Volo/Abp/Data/IDataFilter.cs` |
+| **IAuditingManager** | Owns the current `IAuditLogScope`; `BeginScope()` returns a save-handle that flushes audit entries when disposed. | `framework/src/Volo.Abp.Auditing/Volo/Abp/Auditing/IAuditingManager.cs` |
+
+## Domain Layer
+
+| Term | Definition | Source |
+| --- | --- | --- |
+| **IRepository\<TEntity\>** | Persistence-ignorant repository contract; extends `IBasicRepository<TEntity>` + `IReadOnlyRepository<TEntity>` with predicate-based `FindAsync`/`GetAsync` and `IQueryable` access. | `framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Repositories/IRepository.cs` |
+| **AggregateRoot** | DDD aggregate root base; adds `ExtraProperties` (`IHasExtraProperties`) and `ConcurrencyStamp` (`IHasConcurrencyStamp`) on top of `BasicAggregateRoot`. | `framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Entities/AggregateRoot.cs` |
+| **BasicAggregateRoot** | Minimal aggregate root: implements `IAggregateRoot` + `IGeneratesDomainEvents`, exposing `AddLocalEvent`/`AddDistributedEvent` and `Get/Clear*Events`. | `framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Entities/BasicAggregateRoot.cs` |
+| **IDomainService** | Marker interface that auto-registers a service as transient (extends `ITransientDependency`). | `framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Services/IDomainService.cs` |
+| **ISpecification\<T\>** | Specification-pattern contract with `IsSatisfiedBy(obj)` and `ToExpression()` returning `Expression<Func<T,bool>>`. | `framework/src/Volo.Abp.Specifications/Volo/Abp/Specifications/ISpecification.cs` |
+
+## Application Layer
+
+| Term | Definition | Source |
+| --- | --- | --- |
+| **IApplicationService** | Empty marker that extends `IRemoteService`; identifies app services for conventional registration, auto-controllers and dynamic clients. | `framework/src/Volo.Abp.Ddd.Application.Contracts/Volo/Abp/Application/Services/IApplicationService.cs` |
+| **ICrudAppService** | Aggregates `IReadOnlyAppService` + `ICreateUpdateAppService` + `IDeleteAppService` into one generic CRUD contract. | `framework/src/Volo.Abp.Ddd.Application.Contracts/Volo/Abp/Application/Services/ICrudAppService.cs` |
+| **PagedResultDto\<T\>** | `ListResultDto<T>` + `TotalCount` long; the canonical paged-list return type. | `framework/src/Volo.Abp.Ddd.Application.Contracts/Volo/Abp/Application/Dtos/PagedResultDto.cs` |
+
+## Eventing
+
+| Term | Definition | Source |
+| --- | --- | --- |
+| **ILocalEventBus** | In-process publish/subscribe over `IEventHandler<TEventData>`. | `framework/src/Volo.Abp.EventBus.Abstractions/Volo/Abp/EventBus/Local/ILocalEventBus.cs` |
+| **IDistributedEventBus** | Cross-process event bus contract; implementations include RabbitMQ, Kafka, AzureServiceBus, Dapr. | `framework/src/Volo.Abp.EventBus.Abstractions/Volo/Abp/EventBus/Distributed/IDistributedEventBus.cs` |
+| **ETO** | "Event Transfer Object" — serialisable payload for distributed events. Generic `EntityEto`/`EntityCreatedEto`/`EntityUpdatedEto`/`EntityDeletedEto` carry `EntityType` + `KeysAsString`. | `framework/src/Volo.Abp.Ddd.Domain.Shared/Volo/Abp/Domain/Entities/Events/Distributed/EntityEto.cs` |
+
+## Background Work
+
+| Term | Definition | Source |
+| --- | --- | --- |
+| **IBackgroundJobManager** | Enqueues jobs by typed arguments: `EnqueueAsync<TArgs>(args, priority, delay)`. | `framework/src/Volo.Abp.BackgroundJobs.Abstractions/Volo/Abp/BackgroundJobs/IBackgroundJobManager.cs` |
+| **IBackgroundWorker** | Long-running worker registered with `IBackgroundWorkerManager`; the framework starts/stops them with the application. | `framework/src/Volo.Abp.BackgroundWorkers/Volo/Abp/BackgroundWorkers/IBackgroundWorker.cs` |
+
+## Multi-Tenancy & Security
+
+| Term | Definition | Source |
+| --- | --- | --- |
+| **ICurrentTenant** | Ambient accessor exposing `Id`, `Name`, `IsAvailable`, plus `Change(Guid? id, string? name)` scope switch. | `framework/src/Volo.Abp.MultiTenancy.Abstractions/Volo/Abp/MultiTenancy/ICurrentTenant.cs` |
+| **ICurrentUser** | Ambient claims-based principal: `Id`, `UserName`, `Email`, `Roles`, `IsAuthenticated`, plus claim accessors. | `framework/src/Volo.Abp.Security/Volo/Abp/Users/ICurrentUser.cs` |
+| **IPermissionChecker** | Authorises a user (or `ClaimsPrincipal`) against a named permission. | `framework/src/Volo.Abp.Authorization.Abstractions/Volo/Abp/Authorization/Permissions/IPermissionChecker.cs` |
+| **IFeatureChecker** | Resolves boolean/value feature flags scoped by tenant / edition. | `framework/src/Volo.Abp.Features/Volo/Abp/Features/IFeatureChecker.cs` |
+
+## Infrastructure Services
+
+| Term | Definition | Source |
+| --- | --- | --- |
+| **ISettingProvider** | Hierarchical settings resolver (User → Tenant → Global → Default). | `framework/src/Volo.Abp.Settings/Volo/Abp/Settings/ISettingProvider.cs` |
+| **IObjectMapper** | Object-to-object mapping facade; AutoMapper integration ships in `Volo.Abp.AutoMapper`. | `framework/src/Volo.Abp.ObjectMapping/Volo/Abp/ObjectMapping/IObjectMapper.cs` |
+| **IVirtualFileProvider** | `IFileProvider`-compatible aggregator that serves files embedded in module assemblies. | `framework/src/Volo.Abp.VirtualFileSystem/Volo/Abp/VirtualFileSystem/IVirtualFileProvider.cs` |
+| **IBlobContainer** | Provider-agnostic BLOB storage facade — `SaveAsync`, `GetAsync`, `DeleteAsync`, `ExistsAsync`. | `framework/src/Volo.Abp.BlobStoring/Volo/Abp/BlobStoring/IBlobContainer.cs` |
+| **IClock** | Time abstraction: `Now`, `Kind`, `SupportsMultipleTimezone`, `Normalize(DateTime)`. | `framework/src/Volo.Abp.Timing/Volo/Abp/Timing/IClock.cs` |
+| **IGuidGenerator** | Sequential-friendly Guid factory (`Create()`); default impl is `SimpleGuidGenerator` / `SequentialGuidGenerator`. | `framework/src/Volo.Abp.Guids/Volo/Abp/Guids/IGuidGenerator.cs` |
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Modularity" icon="cube" href="/framework/core/modularity">
+    How `AbpModule` and `[DependsOn]` build the module graph.
+  </Card>
+  <Card title="Dependency Injection" icon="syringe" href="/framework/core/dependency-injection">
+    Convention scanning, `ExposeServices`, OnRegistered actions.
+  </Card>
+  <Card title="Entities & Aggregates" icon="boxes-stacked" href="/framework/ddd/entities-and-aggregates">
+    Full inheritance table for entity & aggregate base classes.
+  </Card>
+  <Card title="Repositories" icon="database" href="/framework/ddd/repositories">
+    `IRepository<TEntity>` semantics, UoW integration, change tracking.
+  </Card>
+</CardGroup>

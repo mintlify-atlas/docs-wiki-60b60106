@@ -1,0 +1,99 @@
+---
+title: "Blazorise UI: ABP CRUD Page Base and Data Grid Wrapper"
+sidebarTitle: "Blazorise"
+description: "ABP's Blazorise theme package — AbpCrudPageBase generic chain, AbpExtensibleDataGrid wrapper, Blazorise bootstrap and dependencies."
+---
+
+`Volo.Abp.BlazoriseUI` is the Blazorise-flavoured sibling of the MudBlazor theme. It registers Blazorise's services with ABP-friendly defaults, exposes `AbpCrudPageBase<…>` for CRUD pages built on `ICrudAppService`, and wraps Blazorise's `DataGrid` in `AbpExtensibleDataGrid<TItem>` so object-extending columns, entity actions and ABP localization plug in transparently. See [MudBlazor](/framework/blazor/mudblazor) for the equivalent on the other supported theme.
+
+## Package & dependencies
+
+`framework/src/Volo.Abp.BlazoriseUI/Volo.Abp.BlazoriseUI.csproj` (Razor SDK, `net10.0`, nullable on) references the ABP core (`Volo.Abp.AspNetCore.Components.Web`, `Authorization`, `Ddd.Application.Contracts`, `Features`, `GlobalFeatures`) and four Blazorise packages, version-pinned centrally:
+
+```xml
+<PackageReference Include="Blazorise" />
+<PackageReference Include="Blazorise.DataGrid" />
+<PackageReference Include="Blazorise.Snackbar" />
+<PackageReference Include="Blazorise.Components" />
+```
+
+`Directory.Packages.props` maps every `Blazorise*` entry to a single version (see [Build Overview](/build/overview)).
+
+## Module bootstrap
+
+```csharp
+// AbpBlazoriseUIModule.cs
+[DependsOn(typeof(AbpAspNetCoreComponentsWebModule), typeof(AbpDddApplicationContractsModule),
+          typeof(AbpAuthorizationModule), typeof(AbpGlobalFeaturesModule), typeof(AbpFeaturesModule))]
+public class AbpBlazoriseUIModule : AbpModule
+{
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.AddBlazorise(o => { o.Debounce = true; o.DebounceInterval = 800; });
+        context.Services.Replace(ServiceDescriptor.Scoped<IComponentActivator, ComponentActivator>());
+        context.Services.AddSingleton(typeof(AbpBlazorMessageLocalizerHelper<>));
+    }
+}
+```
+
+`AddBlazorise` registers Blazorise's services with 800 ms input debouncing; the default `IComponentActivator` is swapped for Blazorise's so Blazorise's lifecycle hooks fire; the open-generic localizer helper supports per-resource string lookups.
+
+## `AbpCrudPageBase<…>`
+
+`AbpCrudPageBase.cs` defines a chained generic page base. The shortest form binds to `ICrudAppService<TEntityDto, TKey>`:
+
+```csharp
+public abstract class AbpCrudPageBase<TAppService, TEntityDto, TKey>
+    : AbpCrudPageBase<TAppService, TEntityDto, TKey, PagedAndSortedResultRequestDto>
+    where TAppService : ICrudAppService<TEntityDto, TKey>
+    where TEntityDto  : class, IEntityDto<TKey>, new()
+{ }
+```
+
+Deeper overloads accept `TGetListInput`, then distinct `TCreateInput`/`TUpdateInput`, then separate view-model types — matching the full parameterisation of `CrudAppService`. Consumers inherit a short form and override `OpenCreateModalAsync`, `OpenEditModalAsync`, etc., to drive Blazorise modals via `AbpBlazoriseUiModalExtensions`.
+
+## `AbpExtensibleDataGrid<TItem>`
+
+`Components/AbpExtensibleDataGrid.razor` (+ `.razor.cs`) wraps `Blazorise.DataGrid` with ABP's `TableColumn` model so module-contributed columns and `ExtraProperties[...]` lookups work without consumer code:
+
+```csharp
+[Parameter] public IEnumerable<TItem> Data { get; set; } = default!;
+[Parameter] public EventCallback<DataGridReadDataEventArgs<TItem>> ReadData { get; set; }
+[Parameter] public int? TotalItems { get; set; }
+[Parameter] public bool ShowPager { get; set; }
+[Parameter] public int PageSize { get; set; }
+[Parameter] public IEnumerable<TableColumn> Columns { get; set; } = default!;
+[Parameter] public bool AutoGenerateColumns { get; set; }
+
+protected Regex ExtensionPropertiesRegex = new Regex(@"ExtraProperties\[(.*?)\]");
+```
+
+Companion components:
+
+| Component | Role |
+| --- | --- |
+| `DataGridEntityActionsColumn<TItem>` | Trailing actions column |
+| `EntityAction` / `EntityActions` | Authorised action buttons |
+| `PageAlert`, `UiMessageAlert`, `UiNotificationAlert`, `UiPageProgress` | DOM counterparts to ABP UI services |
+| `SubmitButton`, `ToolbarButton`, `RadarSpinner` | Styled controls |
+| `ObjectExtending/*` | Editors per extension-property type |
+
+## UI services and helpers
+
+| Service | Class |
+| --- | --- |
+| `IUiMessageService` | `BlazoriseUiMessageService` |
+| `IUiNotificationService` | `BlazoriseUiNotificationService` (Snackbar) |
+| `IUiPageProgressService` | `BlazoriseUiPageProgressService` |
+| Modal helpers | `AbpBlazoriseUiModalExtensions` |
+| Object-extending policy | `BlazoriseExtensionPropertyPolicyChecker` |
+| Property-info bridge | `BlazoriseUiObjectExtensionPropertyInfoExtensions`, `ObjectExtensionPropertyInfoBlazorExtensions` |
+| Sizing parser | `BlazoriseFluentSizingParse` |
+| Breadcrumb DTO | `BreadcrumbItem` |
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="MudBlazor" href="/framework/blazor/mudblazor">The other supported Blazor theme.</Card>
+  <Card title="Blazor Overview" href="/framework/blazor/overview">Hosting + theme picker.</Card>
+</CardGroup>

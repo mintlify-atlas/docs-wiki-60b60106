@@ -1,0 +1,61 @@
+---
+title: "Dapr Integration: Sidecar Clients and API Tokens"
+sidebarTitle: "Dapr"
+description: "IAbpDaprClientFactory for sidecar invocation, the AbpInvocationHandler that routes HTTP proxies through Dapr, and ASP.NET Core app-token validation."
+---
+
+The Dapr integration is split across three packages so applications opt in to exactly the features they need. `Volo.Abp.Dapr` is the foundation: it owns options, the client factory, and token handling. The HTTP-client and MVC packages layer integration into the rest of ABP's networking stack.
+
+## Options and client factory
+
+```csharp framework/src/Volo.Abp.Dapr/Volo/Abp/Dapr/AbpDaprOptions.cs
+public class AbpDaprOptions
+{
+    public string? HttpEndpoint { get; set; }
+    public string? GrpcEndpoint { get; set; }
+    public string? DaprApiToken { get; set; }
+    public string? AppApiToken { get; set; }
+}
+```
+
+`AbpDaprModule` binds the `Dapr` configuration section to `AbpDaprOptions`, then back-fills `DaprApiToken` / `AppApiToken` from the `DAPR_API_TOKEN` / `APP_API_TOKEN` environment variables when the section did not provide them (`framework/src/Volo.Abp.Dapr/Volo/Abp/Dapr/AbpDaprModule.cs`).
+
+`IAbpDaprClientFactory` is the entry point both for typed Dapr SDK clients and for plain `HttpClient`s that target a Dapr-named app:
+
+```csharp framework/src/Volo.Abp.Dapr/Volo/Abp/Dapr/IAbpDaprClientFactory.cs
+public interface IAbpDaprClientFactory
+{
+    Task<DaprClient> CreateAsync(Action<DaprClientBuilder>? builderAction = null);
+
+    Task<HttpClient> CreateHttpClientAsync(
+        string? appId = null,
+        string? daprEndpoint = null,
+        string? daprApiToken = null);
+}
+```
+
+## HTTP client proxy routing
+
+`Volo.Abp.Http.Client.Dapr` plugs into ABP's proxy-client pipeline so remote service calls flow through the sidecar automatically:
+
+```csharp framework/src/Volo.Abp.Http.Client.Dapr/Volo/Abp/Http/Client/Dapr/AbpHttpClientDaprModule.cs
+PreConfigure<AbpHttpClientBuilderOptions>(options =>
+{
+    options.ProxyClientBuildActions.Add((_, clientBuilder) =>
+    {
+        clientBuilder.AddHttpMessageHandler<AbpInvocationHandler>();
+    });
+});
+```
+
+`AbpInvocationHandler` rewrites the outbound request URL to the Dapr sidecar's service-invocation endpoint and injects the `dapr-api-token` header.
+
+## MVC integration
+
+`Volo.Abp.AspNetCore.Mvc.Dapr` is a thin module that just depends on both `AbpAspNetCoreMvcModule` and `AbpDaprModule`. It also ships `IDaprAppApiTokenValidator` / `DaprAppApiTokenValidator` so controllers can verify the inbound `dapr-app-token` header against `AbpDaprOptions.AppApiToken`, plus `DaprHttpContextExtensions` helpers.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Distributed Locking" icon="lock" href="/framework/infra/distributed-locking" />
+</CardGroup>

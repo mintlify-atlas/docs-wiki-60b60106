@@ -1,0 +1,120 @@
+---
+title: "Repository Layout — Top-level Directory Map"
+sidebarTitle: "Repository Layout"
+description: "Annotated tour of every top-level directory and root config file in abpframework/abp with links to the matching wiki sections."
+---
+
+The `abpframework/abp` repository is a single monorepo containing the framework runtime, dozens of application modules, an Nx workspace of Angular packages, a separate set of jQuery/MVC asset packs, the C# tooling, the templates the ABP CLI scaffolds from, and all the PowerShell pipelines that build/pack/publish the whole thing. This page enumerates every top-level directory and the most important root files. Read it once to know where any change should live; each row links to a wiki page that dives deeper.
+
+## Top-level directories
+
+The list below is the literal output of `ls` at the repository root. Numbers reflect what you find in the directory today, not what could theoretically exist there.
+
+| Directory | What lives here | Wiki page |
+| --- | --- | --- |
+| `abp_io/` | Localization data sets for **abp.io** website (`AbpIoLocalization/`). Not part of the shipped framework. | — |
+| `ai-rules/` | LLM rules and prompts used by ABP's AI features: `common/`, `data/`, `template-specific/`, `testing/`, `ui/`. | — |
+| `apiSpec/` | Markdown API spec references (e.g. `Microsoft_AspNetCore_Routing_AbpEndpointRouterOptions.md`). | — |
+| `build/` | Top-level PowerShell build scripts: `build-all.ps1`, `build-all-release.ps1`, `test-all.ps1`, `common.ps1`. | [Build overview](/build/overview) |
+| `deploy/` | Numbered release pipeline scripts: `1-fetch-and-build.ps1` → `8-download-release-zip.ps1`, plus GitHub release/MyGet helpers. | [Build overview](/build/overview) |
+| `docs/` | The public documentation site source — `docs/en/` (markdown + images) and `docs/docs-langs.json`. Read-only reference for this wiki. | — |
+| `framework/` | The ABP framework itself. `framework/src/` holds every `Volo.Abp.*` runtime package; `framework/test/` holds the framework unit/integration tests (`AbpTestBase`, `Volo.Abp.*.Tests`, `SimpleConsoleDemo`). `Volo.Abp.slnx`/`Volo.Abp.abpsln`/`Volo.Abp.abpmdl` are the SLN/ABP Studio entries. | [Core overview](/framework/core/overview) |
+| `modules/` | Pre-built application modules, each as its own subdirectory with the same layered project structure as a generated app. See list below. | [Modules](/modules/overview) |
+| `npm/` | All JavaScript artefacts. `npm/ng-packs/` is an **Nx** workspace producing the `@abp/ng.*` Angular libraries; `npm/packs/` holds the jQuery/Bootstrap/MVC UI asset packages. `npm/package.json`, `npm/lerna.json`, `npm/yarn.lock` drive workspace tooling. | [ng-packs](/ng-packs/overview), [npm packs](/npm-packs/overview) |
+| `nupkg/` | NuGet packing/pushing scripts: `pack.ps1`, `push_packages.ps1`, `push-nightly-packages-myget.ps1`, `unit_test.ps1`. | [Build overview](/build/overview) |
+| `schemas/` | JSON schemas used by ABP Suite / low-code tooling — `schemas/low-code/definitions/` and `schemas/low-code/manifest.json`. | — |
+| `source-code/` | "Source-code" aggregated projects (`Volo.Abp.Account.SourceCode`, `Volo.Abp.Identity.SourceCode`, …) and the `SourceCodes.slnx`. These bundle module sources for ABP Commercial source-code license customers. | [Source code](/source-code/overview) |
+| `studio/` | ABP Studio source-code packs — `studio/source-codes/` contains the additional source-code projects only Studio uses. | [Modules](/modules/overview) |
+| `templates/` | The CLI/Studio solution templates. `templates/app/` (layered, both `angular/` and `aspnet-core/` halves), `templates/app-nolayers/`, `templates/module/`, `templates/console/`, `templates/maui/`, `templates/wpf/`. Also `zip-templates.ps1`, `templates/Directory.Packages.props`, `templates/NuGet.Config`. | [Templates](/templates/overview) |
+| `test/` | Cross-cutting performance test harness — `test/AbpPerfTest/AbpPerfTest.WithAbp/`, `AbpPerfTest.WithoutAbp/`, `_jmeter/`, `_results/`, plus `AbpPerfTest.slnx`. | — |
+| `tools/` | C# developer tools: `tools/github-changelog-generator/`, `tools/localization-key-synchronizer/`, `tools/nuget/`, `tools/smtp-prober-email-sender.exe`. | [CLI overview](/tooling/cli-overview) |
+
+## Root files
+
+| File | Purpose |
+| --- | --- |
+| `Directory.Build.props` | Central MSBuild defaults applied to every project in the monorepo (target frameworks, treat-warnings-as-errors, signing, code-analysis ruleset). |
+| `Directory.Packages.props` | **Central Package Management (CPM)** — single source of truth for the NuGet versions used by every `Volo.Abp.*` project. |
+| `common.props` | Project-wide MSBuild properties shared with template projects via `<Import>`. |
+| `common.test.props` | Additional MSBuild properties applied to test projects (xUnit, Shouldly, code coverage). |
+| `configureawait.props` | Adds the `ConfigureAwaitChecker.Analyzer` to enforce `ConfigureAwait(false)` library style. |
+| `global.json` | .NET SDK pinning (`sdk.version`, `rollForward`). Every contributor must use this SDK or the build refuses to start. |
+| `NuGet.Config` | Restore feeds (nuget.org + MyGet nightly), required for restoring pre-release packages. |
+| `NuGet.md` / `README.md` / `LICENSE.md` / `CONTRIBUTING.md` / `CODE_OF_CONDUCT.md` / `SECURITY.md` | Standard repository metadata. `LICENSE.md` is LGPL-3.0. |
+| `codecov.yml` | Codecov ignore and target settings for the GitHub Actions test runs. |
+| `common.DotSettings` | ReSharper team-wide settings file (formatting, naming). |
+| `latest-versions.json` | Machine-readable list of the latest stable/preview ABP versions consumed by ABP CLI / Studio. |
+| `delete-bin-obj.ps1` | Convenience cleanup script for local dev. |
+
+## `modules/` contents
+
+Each of these is a self-contained solution mirroring the canonical layering described in [`/overview/solution-structure`](/overview/solution-structure).
+
+| Module folder | Notes |
+| --- | --- |
+| `modules/account/` | UI and HTTP API for login/register/password reset. |
+| `modules/audit-logging/` | Persistent audit-log store (EF Core + MongoDB). |
+| `modules/background-jobs/` | Persistent job storage and worker for `IBackgroundJobManager`. |
+| `modules/basic-theme/` | Basic Bootstrap theme (Razor + tag helpers). |
+| `modules/blob-storing-database/` | Database-backed implementation of `IBlobContainer`. |
+| `modules/blogging/` | Multi-author blogging module. |
+| `modules/client-simulation/` | Load-testing harness for simulating clients. |
+| `modules/cms-kit/` | CMS building blocks: pages, blogs, comments, tags, reactions. |
+| `modules/docs/` | Powers the docs.abp.io documentation site. |
+| `modules/feature-management/` | Persistent storage + UI for `IFeatureChecker`. |
+| `modules/identity/` | The user/role/organization-unit module on top of ASP.NET Core Identity. |
+| `modules/identityserver/` | Legacy IdentityServer4 integration. |
+| `modules/openiddict/` | OpenIddict-based auth server (the current default). |
+| `modules/permission-management/` | Persistent storage + UI for `IPermissionChecker`. |
+| `modules/setting-management/` | Persistent storage + UI for `ISettingProvider`. |
+| `modules/tenant-management/` | Tenant CRUD + UI; reads `ICurrentTenant`. |
+| `modules/users/` | User abstractions shared by Identity/Account. |
+| `modules/virtual-file-explorer/` | UI to browse `IVirtualFileProvider` content. |
+
+## `npm/` contents
+
+| Path | Purpose |
+| --- | --- |
+| `npm/ng-packs/` | Nx workspace; `packages/` contains `@abp/ng.core`, `@abp/ng.theme.shared`, `@abp/ng.account`, `@abp/ng.identity`, etc. `apps/` contains demo/dev apps. |
+| `npm/packs/` | jQuery/Bootstrap/MVC asset packs — `aspnetcore.mvc.ui`, `aspnetcore.mvc.ui.theme.shared`, `aspnetcore.mvc.ui.theme.basic`, `bootstrap`, `bootstrap-datepicker`, `chart.js`, `clipboard`, `codemirror`, `core`, `cropperjs`, `datatables.net*`, `cms-kit*`, `blogging`, `anchor-js`, `aspnetcore.components.server.basictheme`, `aspnetcore.components.server.theming`. |
+| `npm/scripts/` | Workspace helper scripts. |
+| `npm/verdaccio-containers/` | Local Verdaccio registry config used in CI. |
+| `npm/package.json`, `npm/lerna.json`, `npm/yarn.lock`, `npm/package-lock.json` | Workspace manifests. |
+| `npm/replace-with-tilde.js`, `npm/update-gulp.js`, `npm/preview-publish.ps1`, `npm/publish-mvc.ps1`, `npm/publish-ng.ps1`, `npm/package-update-script.js`, `npm/publish-utils.js` | Release helpers. |
+
+## `templates/` contents
+
+| Path | Purpose |
+| --- | --- |
+| `templates/app/` | The layered "Application" template. `templates/app/angular/` is the Angular SPA half; `templates/app/aspnet-core/` is the .NET half (with `src/MyCompanyName.MyProjectName.*` projects). |
+| `templates/app-nolayers/` | The single-project, non-layered variant. |
+| `templates/module/` | The "module" template used when scaffolding a redistributable ABP module. |
+| `templates/console/` | A minimal console-host template. |
+| `templates/maui/` | .NET MAUI Blazor template. |
+| `templates/wpf/` | WPF desktop template. |
+| `templates/Directory.Packages.props` | CPM for templates (so generated solutions inherit the same NuGet versions). |
+| `templates/NuGet.Config` | Restore feeds for templates. |
+| `templates/zip-templates.ps1` | Bundles each template folder into a `.zip` consumed by the CLI. |
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/overview/architecture">
+    Bootstrap pipeline, layering, interceptors.
+  </Card>
+  <Card title="Solution Structure" icon="layer-group" href="/overview/solution-structure">
+    Layer-by-layer responsibilities & dependencies.
+  </Card>
+  <Card title="Modules" icon="puzzle-piece" href="/modules/overview">
+    What every folder under `modules/` ships.
+  </Card>
+  <Card title="ng-packs" icon="angular" href="/ng-packs/overview">
+    Nx workspace tour for `@abp/ng.*`.
+  </Card>
+  <Card title="CLI &amp; Tooling" icon="terminal" href="/tooling/cli-overview">
+    `tools/` contents in detail.
+  </Card>
+  <Card title="Build" icon="hammer" href="/build/overview">
+    `build/`, `deploy/`, `nupkg/` pipelines.
+  </Card>
+</CardGroup>

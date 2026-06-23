@@ -1,0 +1,260 @@
+---
+title: "Testing: xUnit, Shouldly, and AbpIntegratedTest Harness"
+sidebarTitle: "Testing"
+description: "How ABP organises its 89 framework test projects — xUnit conventions, AbpIntegratedTest harness, Shouldly + NSubstitute, in-memory DB, Autofac DI."
+---
+
+The ABP framework is exercised by **89 test projects** under `framework/test/` plus per-module test trees (`modules/<name>/test/`). They all stand on a small shared core: `Volo.Abp.TestBase` provides the `AbpIntegratedTest<TStartupModule>` harness that spins up an `IAbpApplication` against a real ABP module graph; `Volo.Abp.AspNetCore.TestBase` adds a `TestServer`-based harness for ASP.NET Core integration tests; `AbpTestBase` (in `framework/test/`) bundles xUnit + Shouldly + NSubstitute so every test project can reference one csproj. This page documents the conventions you'll see across the codebase.
+
+## Project layout
+
+`framework/test/` contains 89 entries. A representative slice:
+
+```
+AbpTestBase                                       <-- shared test infra (xunit + Shouldly + NSubstitute)
+SimpleConsoleDemo                                 <-- minimal IAbpApplicationWithExternalServiceProvider demo
+Volo.Abp.Auditing.Tests                           <-- per-package test project
+Volo.Abp.AspNetCore.Mvc.Tests
+Volo.Abp.AspNetCore.Tests
+Volo.Abp.Autofac.Tests
+Volo.Abp.Caching.StackExchangeRedis.Tests
+Volo.Abp.EntityFrameworkCore.Tests
+Volo.Abp.EntityFrameworkCore.Tests.SecondContext  <-- companion DbContext for cross-context tests
+Volo.Abp.EventBus.Tests
+Volo.Abp.Http.Client.Tests
+Volo.Abp.IdentityModel.Tests
+Volo.Abp.MongoDB.Tests
+Volo.Abp.MongoDB.Tests.SecondContext
+Volo.Abp.MultiTenancy.Tests
+Volo.Abp.TestApp                                  <-- shared "fake domain" used by repository tests
+Volo.Abp.TestApp.Tests
+Volo.Abp.Uow.Tests
+... (etc; full list under framework/test/)
+```
+
+Modules follow the same pattern, e.g. `modules/identity/test/`:
+
+```
+Volo.Abp.Identity.Application.Tests
+Volo.Abp.Identity.AspNetCore.Tests
+Volo.Abp.Identity.Domain.Tests
+Volo.Abp.Identity.EntityFrameworkCore.Tests
+Volo.Abp.Identity.MongoDB.Tests
+Volo.Abp.Identity.TestBase                       <-- module-level shared harness + abstract repository tests
+```
+
+The pattern is: one shared "TestBase" project per module/framework area carries abstract test classes that exercise contracts (`IdentityRoleRepository_Tests`, `IdentityDataSeeder_Tests`, etc.); concrete projects (`*.EntityFrameworkCore.Tests`, `*.MongoDB.Tests`) inherit those tests, plug in a database-specific module, and run them all against each provider.
+
+## Conventions
+
+- One test project per shipped NuGet (`Volo.Abp.X` ↔ `Volo.Abp.X.Tests`).
+- `TargetFramework=net10.0`, `RootNamespace` cleared so the test type's namespace matches the namespace under test.
+- `<Import Project="..\..\..\common.test.props" />` is the standard test-project header (suppresses assembly attributes, enables runtime config gen).
+- `Directory.Build.props` auto-detects test projects by path (`/test/`) + name suffix (`.Tests`/`.TestBase`) and adds `coverlet.collector` — see [Build Overview](/build/overview).
+
+## `AbpTestBase` — the xUnit/Shouldly/NSubstitute bundle
+
+`framework/test/AbpTestBase/AbpTestBase.csproj`:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\..\common.test.props" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>AbpTestBase</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Volo.Abp.TestBase\Volo.Abp.TestBase.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.extensibility.execution" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+</Project>
+```
+
+Every per-package test csproj references this one project and inherits the entire test stack transitively. Sample reference (`Volo.Abp.Auditing.Tests`):
+
+```xml
+<ProjectReference Include="..\..\src\Volo.Abp.Auditing\Volo.Abp.Auditing.csproj" />
+<ProjectReference Include="..\..\src\Volo.Abp.Autofac\Volo.Abp.Autofac.csproj" />
+<ProjectReference Include="..\..\src\Volo.Abp.EntityFrameworkCore.Sqlite\Volo.Abp.EntityFrameworkCore.Sqlite.csproj" />
+<ProjectReference Include="..\AbpTestBase\AbpTestBase.csproj" />
+```
+
+`AbpTestBase` itself contributes one helper file: `ServiceCollectionShouldlyExtensions` adds methods like `services.ShouldContainTransient(typeof(IFoo), typeof(Foo))` that the framework uses to assert DI registrations:
+
+```csharp
+public static void ShouldContainTransient(this IServiceCollection services, Type serviceType, Type implementationType = null)
+{
+    var serviceDescriptor = services.FirstOrDefault(s => s.ServiceType == serviceType);
+    serviceDescriptor.ShouldNotBeNull();
+    serviceDescriptor.ImplementationType.ShouldBe(implementationType ?? serviceType);
+    serviceDescriptor.Lifetime.ShouldBe(ServiceLifetime.Transient);
+}
+```
+
+## `AbpIntegratedTest<TStartupModule>`
+
+`framework/src/Volo.Abp.TestBase/Volo/Abp/Testing/AbpIntegratedTest.cs` is the harness most tests inherit from. It boots a real ABP application against a module under test:
+
+```csharp
+public abstract class AbpIntegratedTest<TStartupModule> : AbpTestBaseWithServiceProvider, IDisposable
+    where TStartupModule : IAbpModule
+{
+    protected IAbpApplication Application { get; }
+    protected IServiceProvider RootServiceProvider { get; }
+    protected IServiceScope TestServiceScope { get; }
+
+    protected AbpIntegratedTest()
+    {
+        var services = CreateServiceCollection();
+        BeforeAddApplication(services);
+        var application = services.AddApplication<TStartupModule>(SetAbpApplicationCreationOptions);
+        Application = application;
+        AfterAddApplication(services);
+
+        RootServiceProvider = CreateServiceProvider(services);   // override to plug Autofac
+        TestServiceScope = RootServiceProvider.CreateScope();
+        application.Initialize(TestServiceScope.ServiceProvider);
+        ServiceProvider = Application.ServiceProvider;
+        AfterInitialize();
+    }
+    public virtual void Dispose() { Application.Shutdown(); /* dispose scope, root, app */ }
+}
+```
+
+Key extension points overridden by per-module test bases:
+
+| Hook | What for |
+| --- | --- |
+| `CreateServiceCollection()` | Start from an empty `ServiceCollection` or seed mocks |
+| `BeforeAddApplication(services)` | Register NSubstitute substitutes before the module sees them |
+| `SetAbpApplicationCreationOptions(options)` | Configure `AbpApplicationCreationOptions` |
+| `AfterAddApplication(services)` | Replace registrations after module registration |
+| `CreateServiceProvider(services)` | Swap to Autofac via `services.BuildServiceProviderFromFactory()` |
+| `AfterInitialize()` | Seed test data once the app is up |
+
+`AbpTestBaseWithServiceProvider` (the parent class) exposes `GetService<T>()`, `GetRequiredService<T>()`, `GetKeyedServices<T>(...)`, `GetRequiredKeyedService<T>(...)` so test bodies look like:
+
+```csharp
+public class AuditingHelper_Tests : AbpIntegratedTest<AbpAuditingTestModule>
+{
+    private readonly IAuditingHelper _auditingHelper;
+    public AuditingHelper_Tests() {
+        _auditingHelper = GetRequiredService<IAuditingHelper>();
+    }
+
+    [Fact]
+    public void Should_Create_AuditLogInfo_With_Current_User() {
+        var info = _auditingHelper.CreateAuditLogInfo();
+        info.UserId.ShouldBe(TestData.CurrentUserId);
+    }
+}
+```
+
+## ASP.NET Core integration tests
+
+`framework/src/Volo.Abp.AspNetCore.TestBase/Volo/Abp/AspNetCore/TestBase/AbpAspNetCoreIntegratedTestBase.cs` wraps `Microsoft.AspNetCore.TestHost`:
+
+```csharp
+public abstract class AbpAspNetCoreIntegratedTestBase<TStartupModule>
+    : AbpTestBaseWithServiceProvider, IDisposable
+    where TStartupModule : class
+{
+    protected TestServer Server { get; }
+    protected HttpClient Client { get; }
+
+    protected virtual IHostBuilder CreateHostBuilder()
+    {
+        return Host.CreateDefaultBuilder()
+            .AddAppSettingsSecretsJson()
+            .ConfigureWebHostDefaults(webBuilder => {
+                if (typeof(TStartupModule).IsAssignableTo<IAbpModule>())
+                    webBuilder.UseStartup<TestStartup<TStartupModule>>();
+                else
+                    webBuilder.UseStartup<TStartupModule>();
+                webBuilder.UseAbpTestServer();
+            })
+            .UseAutofac()
+            .ConfigureServices(ConfigureServices);
+    }
+}
+```
+
+The class is marked `[Obsolete("Use AbpWebApplicationFactoryIntegratedTest instead.")]` — new tests use the `WebApplicationFactory`-based variant. Both end up calling `UseAutofac()` so the test app has the same DI semantics as production.
+
+`GetUrl<TController>()` builds `"/" + ControllerName.RemovePostFix("Controller","AppService","ApplicationService","IntService","IntegrationService","Service")` so a test can do `Client.GetAsync(GetUrl<UserAppService>())`.
+
+## Autofac in tests
+
+ABP runs Autofac as the default DI container in production. Test projects opt in by referencing `Volo.Abp.Autofac` and either calling `services.BuildServiceProviderFromFactory()` (default in `AbpIntegratedTest.CreateServiceProvider`) or `.UseAutofac()` on the `IHostBuilder` in the ASP.NET Core base. This means the same property-injection, dynamic proxy, and module-graph semantics apply at test time — interceptors fire, generic resolution works, etc.
+
+`framework/test/Volo.Abp.Autofac.Tests/` exercises the Autofac integration itself.
+
+## In-memory data substitution
+
+ABP modules expose three storage backends and the test conventions exploit that:
+
+- **EF Core (Sqlite)** — `Volo.Abp.EntityFrameworkCore.Sqlite` is referenced by every EF-Core-flavoured test (e.g. `Volo.Abp.Auditing.Tests`, `Volo.Abp.Identity.EntityFrameworkCore.Tests`). The connection string is `:memory:`; the `TestServiceScope` holds the connection open for the test's lifetime.
+- **MongoDB** — `Volo.Abp.MongoDB.Tests` and friends use the bundled `MongoSandbox*` packages (declared in `Directory.Packages.props`) to spin up an embedded MongoDB per test class.
+- **In-memory provider** — `Volo.Abp.MemoryDb.Tests` and `Volo.Abp.TestApp.Tests` use `Volo.Abp.MemoryDb` (a `Dictionary`-backed repository) for unit-style tests that don't need EF.
+
+The Identity module is the canonical example of the pattern. `Volo.Abp.Identity.TestBase` defines **abstract** repository tests like `IdentityRoleRepository_Tests` against `IIdentityRoleRepository`. The concrete EF Core project (`Volo.Abp.Identity.EntityFrameworkCore.Tests`) and MongoDB project (`Volo.Abp.Identity.MongoDB.Tests`) each inherit those abstract classes and plug in their own storage module — so the same test bodies run against three persistence stacks. The csproj shows the wiring:
+
+```xml
+<!-- modules/identity/test/Volo.Abp.Identity.EntityFrameworkCore.Tests.csproj -->
+<ProjectReference Include="..\..\src\Volo.Abp.Identity.EntityFrameworkCore\..." />
+<ProjectReference Include="..\..\..\permission-management\src\Volo.Abp.PermissionManagement.EntityFrameworkCore\..." />
+<ProjectReference Include="..\Volo.Abp.Identity.TestBase\..." />
+<ProjectReference Include="..\..\..\..\framework\src\Volo.Abp.EntityFrameworkCore.Sqlite\..." />
+```
+
+## Mocking with NSubstitute
+
+NSubstitute is the only mocking library referenced. Typical usage replaces ambient-context providers:
+
+```csharp
+protected override void AfterAddApplication(IServiceCollection services)
+{
+    var currentUser = Substitute.For<ICurrentUser>();
+    currentUser.Id.Returns(TestData.User1Id);
+    currentUser.IsAuthenticated.Returns(true);
+    services.Replace(ServiceDescriptor.Transient<ICurrentUser>(_ => currentUser));
+}
+```
+
+Because `AbpIntegratedTest.AfterAddApplication` runs **after** the module pipeline, the substitute wins over the default registration.
+
+## Shouldly conventions
+
+The codebase uses Shouldly exclusively for assertions. The reach goes beyond value checks — `AbpTestBase/Microsoft/Extensions/DependencyInjection/ServiceCollectionShouldlyExtensions.cs` adds DI-aware shouldlies that the framework itself uses heavily (e.g. testing that `[Dependency(...)]` attributes produce the right `ServiceDescriptor`).
+
+## Logging in tests
+
+`framework/test/AbpTestBase/Volo/Abp/TestBase/Logging/ICanLogOnObject.cs` is a marker interface for objects that should forward logs to the test sink. Combined with `Microsoft.Extensions.Logging.Abstractions`, tests usually attach an `ITestOutputHelper` logger via the constructor and assert that warnings/errors fire.
+
+## Running tests
+
+CI runs `./build-all.ps1` followed by the test job inside `build-and-test.yml` — see [Build Scripts](/build/scripts). Locally:
+
+```bash
+cd build
+.\build-all.ps1
+.\test-all.ps1
+```
+
+`test-all.ps1` runs `dotnet test --no-build --no-restore --collect:"XPlat Code Coverage"` over each solution path, so coverlet emits coverage to each project's `TestResults/`.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Build Overview" href="/build/overview">Props/SDK conventions the tests inherit.</Card>
+  <Card title="Scripts" href="/build/scripts">`build-all.ps1` / `test-all.ps1` entry points.</Card>
+  <Card title="GitHub Workflows" href="/build/github-workflows">CI job that runs the tests on every PR.</Card>
+  <Card title="Application Startup" href="/flows/application-startup">What `application.Initialize` does in `AbpIntegratedTest`.</Card>
+</CardGroup>

@@ -1,0 +1,63 @@
+---
+title: "App-NoLayers Template: Single-Project Rapid-Start Variant"
+sidebarTitle: "App-NoLayers"
+description: "The single-project ABP starter where Domain, Application, and Web live in one csproj — picked by `abp new -t app-nolayers` for MVC, Blazor Server, or Blazor WebAssembly."
+---
+
+`templates/app-nolayers/` is the simpler sibling of the [layered `app` template](/templates/app). It collapses the four DDD layers (Domain / Application / HttpApi / Web) into a single ASP.NET Core project so you can get from `abp new` to working code without navigating six projects. It is selected with `abp new <name> -t app-nolayers`.
+
+## Layout
+
+```text
+templates/app-nolayers/
+├── angular/                                       # Angular workspace (when -u angular)
+└── aspnet-core/
+    ├── MyCompanyName.MyProjectName.slnx
+    ├── NuGet.Config
+    ├── README.md
+    ├── migrate-database.ps1
+    ├── MyCompanyName.MyProjectName.Mvc/           # MVC + EF Core
+    ├── MyCompanyName.MyProjectName.Mvc.Mongo/     # MVC + MongoDB
+    ├── MyCompanyName.MyProjectName.Blazor.Server/       # Blazor Server + EF Core
+    ├── MyCompanyName.MyProjectName.Blazor.Server.Mongo/ # Blazor Server + MongoDB
+    ├── MyCompanyName.MyProjectName.Blazor.WebAssembly/  # Blazor WASM (+ companion API)
+    ├── MyCompanyName.MyProjectName.Host/                # API host used by WASM (EF Core)
+    └── MyCompanyName.MyProjectName.Host.Mongo/          # API host used by WASM (MongoDB)
+```
+
+Note: unlike `templates/app/aspnet-core/`, there is no `src/` subfolder — every project sits directly under `aspnet-core/`.
+
+## What changes vs the layered template
+
+- **One csproj per UI flavour.** The MVC variant (`*.Mvc`) is a single ASP.NET Core project that owns its entities, application services, controllers, and Razor Pages. There is no separate `*.Application` or `*.Domain` assembly.
+- **Persistence is in the same project.** EF Core registrations, `DbContext`, and migrations live next to the Razor Pages.
+- **Both DBMS variants are shipped.** Each UI flavour has a parallel `*.Mongo` variant that uses MongoDB instead of EF Core. The CLI keeps exactly one of them.
+- **No `AuthServer` project.** Authentication is handled inline through OpenIddict in the single host. `--tiered` and `--separate-auth-server` are not supported by this template.
+- **WASM still needs a host.** When `-u blazor` is selected the CLI keeps `*.Blazor.WebAssembly` plus a matching `*.Host` (or `*.Host.Mongo`) project to serve the API.
+
+## Selection switches
+
+| Flag | Effect |
+| --- | --- |
+| `-u mvc` (default) | Keeps `MyCompanyName.MyProjectName.Mvc`. |
+| `-u blazor-server` | Keeps `MyCompanyName.MyProjectName.Blazor.Server`. |
+| `-u blazor` | Keeps `MyCompanyName.MyProjectName.Blazor.WebAssembly` + `*.Host`. |
+| `-d ef` (default) | Keeps the EF-Core variants; removes all `*.Mongo` projects. |
+| `-d mongodb` | Keeps the `*.Mongo` variants; removes the EF-Core ones. |
+
+The pruning is implemented by `AppNoLayersTemplateBase` / `AppNoLayersTemplate` (`framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ProjectBuilding/Templates/App/AppNoLayersTemplateBase.cs`) which contributes custom build steps:
+
+- `AppNoLayersDatabaseManagementSystemChangeStep` — applies the `--dbms` choice on top of the kept variant.
+- `AppNoLayersMigrateDatabaseChangeStep` — patches `migrate-database.ps1` so it knows which project owns the migrations.
+- `AppNoLayersMoveProjectsStep` — flattens the surviving project into the solution root after its siblings have been removed.
+
+## When to pick which template
+
+`app-nolayers` is ideal for proof-of-concept apps, prototypes, training material, or small internal tools where DDD layering is overkill. Apps that need to be split between teams, plug into reusable ABP modules, or be wrapped by a separate Angular/Blazor WASM client tend to outgrow it quickly — choose [`app`](/templates/app) instead.
+
+The Angular workspace under `templates/app-nolayers/angular/` is structurally the same as the layered one — see [Angular templates](/templates/angular).
+
+<CardGroup cols={2}>
+  <Card title="Layered app template" href="/templates/app">Full layered DDD variant.</Card>
+  <Card title="Module template" href="/templates/module">Template for reusable ABP modules.</Card>
+</CardGroup>

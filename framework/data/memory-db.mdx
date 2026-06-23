@@ -1,0 +1,90 @@
+---
+title: "MemoryDb in-process repository for tests"
+sidebarTitle: "Memory DB"
+description: "How Volo.Abp.MemoryDb provides an in-memory repository implementation with ABP auditing and event semantics for unit and integration tests."
+---
+
+`Volo.Abp.MemoryDb` is the test-friendly persistence layer that ships with ABP. It implements the full `IRepository<TEntity>` contract against in-process `ConcurrentDictionary` stores so unit and integration tests can exercise application services without a real database, while still honouring auditing, GUID generation, and entity events.
+
+## Module composition
+
+```csharp
+// framework/src/Volo.Abp.MemoryDb/Volo/Abp/MemoryDb/AbpMemoryDbModule.cs
+[DependsOn(typeof(AbpDddDomainModule))]
+public class AbpMemoryDbModule : AbpModule
+{
+    public override void ConfigureServices(ServiceConfigurationContext context)
+    {
+        context.Services.TryAddTransient(typeof(IMemoryDatabaseProvider<>), typeof(UnitOfWorkMemoryDatabaseProvider<>));
+        context.Services.TryAddTransient(typeof(IMemoryDatabaseCollection<>), typeof(MemoryDatabaseCollection<>));
+    }
+}
+```
+
+`AbpMemoryDbConsts.ProviderName` (`Volo/Abp/MemoryDb/AbpMemoryDbConsts.cs`) is the string repositories report as their data-provider, mirroring the EF/Mongo modules.
+
+## `MemoryDbContext`
+
+`MemoryDbContext` (`framework/src/Volo.Abp.MemoryDb/Volo/Abp/MemoryDb/MemoryDbContext.cs`) is intentionally a marker:
+
+```csharp
+public abstract class MemoryDbContext : ISingletonDependency
+{
+    public virtual IReadOnlyList<Type> GetEntityTypes() => EmptyTypeList;
+}
+```
+
+A subclass exists primarily so applications can declare a typed context (e.g. `public class MyTestDbContext : MemoryDbContext`) and bind a discrete `MemoryDatabase` to it. Override `GetEntityTypes()` to constrain which entity types belong to that context — useful when several test contexts share an `IServiceProvider`.
+
+## `MemoryDatabase` and collections
+
+`MemoryDatabase` (`Volo/Abp/Domain/Repositories/MemoryDb/MemoryDatabase.cs`) is the actual store. It holds two concurrent dictionaries keyed by entity type:
+
+```csharp
+private readonly ConcurrentDictionary<Type, object> _sets;
+private readonly ConcurrentDictionary<Type, InMemoryIdGenerator> _entityIdGenerators;
+
+public IMemoryDatabaseCollection<TEntity> Collection<TEntity>() where TEntity : class, IEntity
+    => (_sets.GetOrAdd(typeof(TEntity),
+            _ => _serviceProvider.GetRequiredService<IMemoryDatabaseCollection<TEntity>>())
+        as IMemoryDatabaseCollection<TEntity>)!;
+
+public TKey GenerateNextId<TEntity, TKey>()
+    => _entityIdGenerators.GetOrAdd(typeof(TEntity), () => new InMemoryIdGenerator()).GenerateNext<TKey>();
+```
+
+Each `IMemoryDatabaseCollection<T>` (`MemoryDatabaseCollection.cs`) wraps a `Dictionary<TKey, TEntity>` plus a `SemaphoreSlim` for thread safety. `InMemoryIdGenerator` produces monotonically increasing `int`/`long`/`Guid` IDs so entities without explicit keys still get one. `Utf8JsonMemoryDbSerializer` (and the `IMemoryDbSerializer` interface) clone entities on store/retrieve so reference mutation in test code does not leak into the database — the same way EF detaches entities.
+
+The named-database story is handled by `MemoryDatabaseManager` (`MemoryDatabaseManager.cs`), a singleton cache of `IMemoryDatabase` instances keyed by name, exactly mirroring the EF Core `IDbContextProvider` lookups.
+
+## `MemoryDbRepository<TMemoryDbContext, TEntity>`
+
+`MemoryDbRepository<TMemoryDbContext, TEntity>` (`Volo/Abp/Domain/Repositories/MemoryDb/MemoryDbRepository.cs`) is the bridge to ABP:
+
+```csharp
+public class MemoryDbRepository<TMemoryDbContext, TEntity> : RepositoryBase<TEntity>, IMemoryDbRepository<TEntity>
+    where TMemoryDbContext : MemoryDbContext
+    where TEntity : class, IEntity
+{
+    public virtual async Task<IMemoryDatabaseCollection<TEntity>> GetCollectionAsync()
+        => (await GetDatabaseAsync()).Collection<TEntity>();
+
+    public ILocalEventBus LocalEventBus { get; }
+    public IDistributedEventBus DistributedEventBus { get; }
+    public IEntityChangeEventHelper EntityChangeEventHelper { get; }
+    public IGuidGenerator GuidGenerator { get; }
+    public IAuditPropertySetter AuditPropertySetter { get; }
+}
+```
+
+On `InsertAsync` the repository fills concurrency stamps, sets `IGuidGenerator.Create()` IDs, applies creation audit via `IAuditPropertySetter`, and publishes `EntityCreatedEvent` through `EntityChangeEventHelper`. `UpdateAsync` runs the modification-audit path; `DeleteAsync` honours `ISoftDelete` by flipping `IsDeleted` plus deletion audit, only hard-removing the row when the entity is not soft-deletable. Read paths apply the same data filters as production repositories — `IDataFilter.IsEnabled<ISoftDelete>()` / `IsEnabled<IMultiTenant>()` are consulted before filtering the in-memory list.
+
+`UnitOfWorkMemoryDatabaseProvider<TMemoryDbContext>` (`Volo/Abp/Uow/MemoryDb/UnitOfWorkMemoryDatabaseProvider.cs`) and `MemoryDbDatabaseApi` plug the database into the active UoW so transactions and event publishing fire in the same place they would for EF/Mongo — even though the store itself does not support rollback. The end result is tests that swap `AbpEntityFrameworkCoreModule` for `AbpMemoryDbModule` keep working without changing application code.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Entity Framework Core" href="/framework/data/entity-framework-core" />
+  <Card title="MongoDB" href="/framework/data/mongodb" />
+  <Card title="Data seeding & filtering" href="/framework/data/data-seeding-and-filtering" />
+</CardGroup>

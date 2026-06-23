@@ -1,0 +1,138 @@
+---
+title: "Tenant Resolution Contributors and Pipeline"
+sidebarTitle: "Tenant Resolution"
+description: "Walk through ABP's tenant-resolve contributor chain — header, cookie, route, query string, domain, current-user and custom resolvers."
+---
+
+A tenant resolver pipeline turns whatever signal the caller carries (an HTTP header, a subdomain, a route value, an authenticated user claim) into a tenant identifier that `ITenantConfigurationProvider` can look up. ABP's pipeline is a deterministic, ordered list of `ITenantResolveContributor` instances configured through `AbpTenantResolveOptions.TenantResolvers` and walked by `TenantResolver` (`framework/src/Volo.Abp.MultiTenancy/Volo/Abp/MultiTenancy/TenantResolver.cs`). The first contributor that sets `TenantIdOrName` (or marks the context `Handled`) wins, and the framework records the resolver name in `TenantResolveResult.AppliedResolvers` for diagnostics.
+
+## The contract
+
+```csharp
+// framework/src/Volo.Abp.MultiTenancy/Volo/Abp/MultiTenancy/TenantResolveContributorBase.cs
+public abstract class TenantResolveContributorBase : ITenantResolveContributor
+{
+    public abstract string Name { get; }
+    public abstract Task ResolveAsync(ITenantResolveContext context);
+}
+```
+
+`ITenantResolveContext` carries the request-scoped `IServiceProvider`, a `TenantIdOrName` slot, and a `Handled` flag. Setting `Handled = true` while leaving `TenantIdOrName` null forces the host context (no tenant) — this is what `CurrentUserTenantResolveContributor` does for an authenticated host user.
+
+## Built-in contributors
+
+The framework's protocol-agnostic contributors live in `framework/src/Volo.Abp.MultiTenancy/Volo/Abp/MultiTenancy/`; the HTTP-aware ones live in `framework/src/Volo.Abp.AspNetCore.MultiTenancy/Volo/Abp/AspNetCore/MultiTenancy/` and all derive from `HttpTenantResolveContributorBase`.
+
+| Contributor | `Name` constant | Source file | Reads from |
+| --- | --- | --- | --- |
+| `ActionTenantResolveContributor` | `Action` | `Volo.Abp.MultiTenancy/.../ActionTenantResolveContributor.cs` | User-supplied `Action<ITenantResolveContext>` — useful for tests and custom hosts. |
+| `CurrentUserTenantResolveContributor` | `CurrentUser` | `Volo.Abp.MultiTenancy/.../CurrentUserTenantResolveContributor.cs` | `ICurrentUser.TenantId`. Sets `Handled = true` for any authenticated user, so a host user short-circuits to host even with no other signal. |
+| `QueryStringTenantResolveContributor` | `QueryString` | `Volo.Abp.AspNetCore.MultiTenancy/.../QueryStringTenantResolveContributor.cs` | `?__tenant=...` query parameter (key configurable via `AbpAspNetCoreMultiTenancyOptions.TenantKey`). |
+| `RouteTenantResolveContributor` | `Route` | `Volo.Abp.AspNetCore.MultiTenancy/.../RouteTenantResolveContributor.cs` | `httpContext.GetRouteValue(tenantKey)` — e.g. routes like `/{__tenant}/api/...`. |
+| `HeaderTenantResolveContributor` | `Header` | `Volo.Abp.AspNetCore.MultiTenancy/.../HeaderTenantResolveContributor.cs` | `__tenant` request header. Logs a warning if multiple values are present and uses the first. |
+| `CookieTenantResolveContributor` | `Cookie` | `Volo.Abp.AspNetCore.MultiTenancy/.../CookieTenantResolveContributor.cs` | `__tenant` cookie. |
+| `DomainTenantResolveContributor` | `Domain` | `Volo.Abp.AspNetCore.MultiTenancy/.../DomainTenantResolveContributor.cs` | A configurable format string (e.g. `{0}.myapp.com`) matched against `httpContext.Request.Host`. Always marks the context `Handled` to enforce host vs. tenant separation by domain. |
+| `FormTenantResolveContributor` | `Form` | `Volo.Abp.AspNetCore.MultiTenancy/.../FormTenantResolveContributor.cs` | `__tenant` form field. **Marked `[Obsolete]`** because reading the form here disables some ASP.NET Core features; will be removed. |
+
+The default ASP.NET Core ordering (added by `AbpAspNetCoreMultiTenancyModule`) is approximately: **CurrentUser → QueryString → Route → Header → Cookie**. Domain is opt-in. The CurrentUser contributor sits first so that an authenticated user's `TenantId` claim wins over what could otherwise be a stale query-string `__tenant=...` carried in a referrer.
+
+## TenantResolver
+
+```csharp
+// framework/src/Volo.Abp.MultiTenancy/Volo/Abp/MultiTenancy/TenantResolver.cs
+public virtual async Task<TenantResolveResult> ResolveTenantIdOrNameAsync()
+{
+    var result = new TenantResolveResult();
+    using (var serviceScope = ServiceProvider.CreateScope())
+    {
+        var context = new TenantResolveContext(serviceScope.ServiceProvider);
+
+        foreach (var tenantResolver in Options.TenantResolvers)
+        {
+            await tenantResolver.ResolveAsync(context);
+            result.AppliedResolvers.Add(tenantResolver.Name);
+
+            if (context.HasResolvedTenantOrHost())
+            {
+                result.TenantIdOrName = context.TenantIdOrName;
+                break;
+            }
+        }
+    }
+
+    if (result.TenantIdOrName.IsNullOrEmpty() && !string.IsNullOrWhiteSpace(Options.FallbackTenant))
+    {
+        result.TenantIdOrName = Options.FallbackTenant;
+        result.AppliedResolvers.Add(TenantResolverNames.FallbackTenant);
+    }
+    return result;
+}
+```
+
+Three things to notice:
+
+1. The pipeline runs inside a freshly-created `IServiceScope`, so contributors that resolve scoped services (e.g. `ICurrentUser`) do not bleed into the caller's scope.
+2. `HasResolvedTenantOrHost()` returns true when either `TenantIdOrName` is set **or** `Handled` is true — that is how `CurrentUser` and `Domain` force the host path without an explicit id.
+3. `AbpTenantResolveOptions.FallbackTenant` (`framework/src/Volo.Abp.MultiTenancy.Abstractions/Volo/Abp/MultiTenancy/AbpTenantResolveOptions.cs`) is applied last and recorded as `FallbackTenant` in the result.
+
+## Registering / replacing contributors
+
+Add your own contributor by `PreConfigure`/`Configure`-ing `AbpTenantResolveOptions`:
+
+```csharp
+Configure<AbpTenantResolveOptions>(options =>
+{
+    // Push domain-based resolution to the front of the list.
+    options.TenantResolvers.Insert(0,
+        new DomainTenantResolveContributor("{0}.myapp.io"));
+
+    // Remove the query-string contributor in production.
+    options.TenantResolvers.RemoveAll(r =>
+        r is QueryStringTenantResolveContributor);
+});
+```
+
+For protocol-agnostic logic (background workers, gRPC hosts, message consumers) use `ActionTenantResolveContributor`:
+
+```csharp
+options.TenantResolvers.Add(new ActionTenantResolveContributor(ctx =>
+{
+    var msg = ctx.ServiceProvider.GetRequiredService<IMessageContext>();
+    ctx.TenantIdOrName = msg.Headers["x-tenant"].ToString();
+}));
+```
+
+To author a brand new contributor, derive from `TenantResolveContributorBase` (or `HttpTenantResolveContributorBase` for ASP.NET Core), expose a public `ContributorName` constant, and register it in `AbpTenantResolveOptions.TenantResolvers`.
+
+## Domain-based resolution
+
+`DomainTenantResolveContributor` accepts a format such as `{0}.myapp.io` or `tenant.{0}.dev`:
+
+```csharp
+public DomainTenantResolveContributor(string domainFormat)
+{
+    _domainFormat = domainFormat.RemovePreFix(ProtocolPrefixes);
+}
+```
+
+It strips `http://`/`https://` prefixes, then uses `FormattedStringValueExtracter.Extract` to pull `{0}` out of the incoming `Host`. Because it always sets `context.Handled = true`, a request whose host does not match the template resolves to the host (rather than continuing the pipeline) — that is the intended semantics for "host lives at `app.io`, tenants live at `{tenantName}.app.io`".
+
+## What happens when resolution fails
+
+`TenantConfigurationProvider.GetAsync` (`framework/src/Volo.Abp.MultiTenancy/Volo/Abp/MultiTenancy/TenantConfigurationProvider.cs`) throws a localized `BusinessException`:
+
+- **`Volo.AbpIo.MultiTenancy:010001`** — tenant id-or-name was supplied but not found.
+- **`Volo.AbpIo.MultiTenancy:010002`** — tenant was found but `IsActive = false`.
+
+The ASP.NET Core middleware (see [ASP.NET Core Multi-Tenancy](/framework/multi-tenancy/aspnetcore-multitenancy)) catches these and writes a friendly response via `AbpAspNetCoreMultiTenancyOptions.MultiTenancyMiddlewareErrorPageBuilder`.
+
+## See also
+
+<CardGroup cols={2}>
+<Card title="Overview" href="/framework/multi-tenancy/overview" icon="layer-group">
+The big picture: `ICurrentTenant`, `ITenantStore`, connection strings.
+</Card>
+<Card title="ASP.NET Core Multi-Tenancy" href="/framework/multi-tenancy/aspnetcore-multitenancy" icon="globe">
+Middleware, tenant key, cookie handling, tenant switch UI.
+</Card>
+</CardGroup>

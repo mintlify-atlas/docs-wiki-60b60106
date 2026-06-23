@@ -1,0 +1,143 @@
+---
+title: "Schematics & Nx Generators — Proxy, Theme, SSR"
+sidebarTitle: "Schematics"
+description: "Reference for @abp/ng.schematics (Angular CLI collection) and @abp/nx.generators (Nx adapter): proxy-add, api, create-lib, change-theme, ssr-add, ai-config."
+---
+
+ABP ships two sibling packages that automate Angular workspace edits:
+`@abp/ng.schematics` is a classic Angular CLI [Schematics](https://angular.dev/tools/cli/schematics)
+collection, and `@abp/nx.generators` is an Nx wrapper that re-exports the same
+schematics through Nx's generator API. There is no `ng-add` schematic in this
+repo — proxies and themes are added via explicit commands once `@abp/ng.core`
+is already installed.
+
+## @abp/ng.schematics
+
+Defined in `npm/ng-packs/packages/schematics/`. The collection manifest lives at
+`src/collection.json`:
+
+```json
+// npm/ng-packs/packages/schematics/src/collection.json
+"schematics": {
+  "proxy-add":     { "factory": "./commands/proxy-add",     "schema": "./commands/proxy-add/schema.json" },
+  "proxy-index":   { "factory": "./commands/proxy-index" },
+  "proxy-refresh": { "factory": "./commands/proxy-refresh" },
+  "proxy-remove":  { "factory": "./commands/proxy-remove" },
+  "api":           { "factory": "./commands/api" },
+  "create-lib":    { "factory": "./commands/create-lib" },
+  "change-theme":  { "factory": "./commands/change-theme" },
+  "ai-config":     { "factory": "./commands/ai-config" },
+  "server":        { "factory": "./commands/ssr-add/server",  "hidden": true },
+  "ssr-add":       { "factory": "./commands/ssr-add" }
+}
+```
+
+Run any of them with:
+
+```bash
+ng generate @abp/ng.schematics:<name> [args]
+```
+
+### proxy-add — the flagship generator
+
+`commands/proxy-add/index.ts` is the entry point for the proxy generator. It
+reads the backend module's OpenAPI/ABP API definition, writes proxy services,
+DTOs, and an `index.ts` barrel into a target Angular project. The schema
+(`commands/proxy-add/schema.json`) exposes positional arguments:
+
+| Position | Property | Description |
+| --- | --- | --- |
+| 0 | `module` | Backend module name (default `app`) |
+| 1 | `apiName` | Remote service name (default `default`) |
+| 2 | `source` | Source Angular project (for the API URL) |
+| 3 | `target` | Target Angular project to place generated code |
+| 4 | `url` | Override URL for the API definition |
+| 5 | `serviceType` | `application` ∣ `integration` ∣ `all` |
+| 6 | `entryPoint` | Secondary entry point under the target lib |
+
+```typescript
+// commands/proxy-add/index.ts (excerpt)
+export default function (schema: GenerateProxySchema) {
+  const params = removeDefaultPlaceholders(schema);
+  const moduleName = params.module || 'app';
+  return chain([async (host: Tree) => {
+    const target          = await resolveProject(host, params.target!);
+    const targetPath      = buildTargetPath(target.definition, params.entryPoint);
+    const getApiDefinition = createApiDefinitionGetter(params);
+    /* … clearProxy, saveProxyConfig, generateApis, generateIndex … */
+  }]);
+}
+```
+
+Sibling commands operate on the resulting `proxy.config.json`:
+
+- `proxy-refresh` re-fetches every module recorded under `generated`.
+- `proxy-remove` deletes one module's generated files and updates the config.
+- `proxy-index` rewrites the barrel `index.ts`.
+
+### Other commands
+
+- **`api`** — same shape as `proxy-add` but emits API service classes only
+  (no DTO generation). Templates live in `commands/api/files-service`,
+  `files-model`, and `files-enum`.
+- **`create-lib`** — scaffolds a new Angular library with both module-based
+  (`files-package`) and standalone-component (`files-package-standalone`)
+  variants, plus optional secondary entry points.
+- **`change-theme`** — swaps theme stylesheets. The mapping table is
+  hard-coded in `commands/change-theme/style-map.ts` and the available themes
+  in `theme-options.enum.ts`.
+- **`ssr-add`** — installs Angular SSR. It composes the private `server`
+  schematic (`commands/ssr-add/server`) with ABP-specific files under
+  `commands/ssr-add/files`.
+- **`ai-config`** — generates AI tooling config files (cursor rules, etc.).
+
+## @abp/nx.generators
+
+`npm/ng-packs/packages/generators/generators.json` exposes three generators that
+each `wrapAngularDevkitSchematic` from the schematics collection:
+
+```json
+"generators": {
+  "generate-proxy":  { "factory": "./src/generators/generate-proxy/generator" },
+  "update-version":  { "factory": "./src/generators/update-version/generator" },
+  "change-theme":    { "factory": "./src/generators/change-theme/generator" }
+}
+```
+
+`generate-proxy/generator.ts` is a six-line bridge:
+
+```typescript
+export default async function (host: Tree, schema: GenerateProxyGeneratorSchema) {
+  const runAngularLibrarySchematic =
+    wrapAngularDevkitSchematic('@abp/ng.schematics', 'proxy-add');
+  await runAngularLibrarySchematic(host, { ...schema });
+  return () => { console.log(`proxy added '${schema.target}`); };
+}
+```
+
+`update-version/generator.ts` is the only one that doesn't delegate — it walks
+every `package.json` in the workspace and rewrites `dependencies`,
+`devDependencies`, and `peerDependencies` entries to match `abpVersion` or
+`leptonXVersion` using the regex `semverRegex` from `utils.ts`. The change-theme
+generator forwards to the schematic of the same name, allowing a `localPath`
+override for monorepo development.
+
+## What about `ng add @abp/ng.core`?
+
+The repository does not implement an `ng-add` schematic. ABP Angular apps are
+scaffolded by the ABP CLI (`abp new`) which writes a ready-to-run Angular
+workspace including `@abp/ng.core` and `@abp/ng.oauth`. Once that workspace
+exists, the schematics above are used to extend it. See the
+[CLI documentation](https://abp.io/docs/latest/cli) and the
+[ng-packs overview](/ng-packs/overview) for the larger picture.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="@abp/ng.core" href="/ng-packs/core">
+    The runtime that the generated proxy services depend on.
+  </Card>
+  <Card title="@abp/ng.oauth" href="/ng-packs/oauth">
+    Auth wiring that complements the generated API clients.
+  </Card>
+</CardGroup>

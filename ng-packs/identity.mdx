@@ -1,0 +1,80 @@
+---
+title: "@abp/ng.identity — Users & Roles Admin UI"
+sidebarTitle: "identity"
+description: "Admin screens for users and roles backed by generated proxies, role-assignment dialogs, and per-row permission management integration."
+---
+
+`@abp/ng.identity` (`npm/ng-packs/packages/identity/`) is the Angular face of the Identity module: list, create, edit, delete users and roles, assign roles to users, and open the permission editor for either.
+
+## Source layout
+
+```
+packages/identity/
+├── proxy/                       // generated client (@abp/ng.identity/proxy)
+│   ├── ng-package.json
+│   └── src/
+├── src/lib/
+│   ├── identity.module.ts
+│   ├── identity-routing.module.ts
+│   ├── identity.routes.ts
+│   ├── components/
+│   │   ├── users/
+│   │   │   ├── users.component.ts
+│   │   │   └── users.component.html
+│   │   └── roles/
+│   │       ├── roles.component.ts
+│   │       └── roles.component.html
+│   ├── defaults/                // default ePropList, eFormPropList, eActionList
+│   ├── enums/
+│   ├── guards/
+│   ├── models/
+│   ├── resolvers/
+│   └── tokens/
+└── config/                      // module-config provider (`registerLocale`, `addRoute`, …)
+```
+
+## Components
+
+There are intentionally only **two** smart components — `UsersComponent` and `RolesComponent`. Each one is a thin host that wires:
+
+1. The page shell from `@abp/ng.components/page`.
+2. An `<abp-extensible-table>` from `@abp/ng.components/extensible` driven by `defaults/` metadata.
+3. Inline create/edit dialogs rendered by `<abp-extensible-form>`.
+4. Row actions that open the [permission-management](/ng-packs/permission-management) modal or invoke proxy services for delete/lock/unlock.
+
+That is the whole pattern: define columns (`ePropList`), define form fields (`eFormPropList`), define row actions (`eActionList`), and the extensible components do the rest. Downstream apps add extra columns or actions via `ExtensionsService` without forking.
+
+## Proxy services
+
+`packages/identity/proxy/` is the generated secondary entry point (`@abp/ng.identity/proxy`). It contains strongly-typed clients matching the Identity HTTP API:
+
+- `IdentityUserService` — `get`, `getList`, `create`, `update`, `delete`, `getRoles`, `getAssignableRoles`, `getAvailableOrganizationUnits`, `lock`/`unlock`, `setPassword`.
+- `IdentityRoleService` — `get`, `getList`, `getAllList`, `create`, `update`, `delete`.
+- `OrganizationUnitService`, `IdentityClaimTypeService`, etc.
+
+These are produced by running `ng g @abp/ng.schematics:proxy-add --module identity` (see [Schematics](/ng-packs/schematics-generators)). The runtime calls all flow through `RestService` in `@abp/ng.core`.
+
+## Guards & resolvers
+
+- `guards/` — protects routes by Identity policies (e.g. `AbpIdentity.Users`, `AbpIdentity.Roles`) via `@abp/ng.core/PermissionGuard`.
+- `resolvers/` — pre-loads role lists / OU lists before the form opens, so editing a user shows assigned roles immediately.
+
+## Module config
+
+`config/` exposes the registration helpers used in app bootstrap:
+
+```typescript
+// app.config.ts
+provideAbpIdentity({
+  // override default ePropList, eFormPropList, eActionList, … here
+})
+```
+
+The package also contributes nav items (`Users`, `Roles`) into `NavItemsService` from `@abp/ng.theme.shared`, so the sidebar in `theme-basic` (or LeptonX) picks them up automatically.
+
+<CardGroup cols={2}>
+  <Card title="permission-management" href="/ng-packs/permission-management">Opened from row actions</Card>
+  <Card title="components" href="/ng-packs/components">Extensible table/form used here</Card>
+  <Card title="core" href="/ng-packs/core">RestService + PermissionGuard</Card>
+  <Card title="account" href="/ng-packs/account">Profile/login complement</Card>
+</CardGroup>

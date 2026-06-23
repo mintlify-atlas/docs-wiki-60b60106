@@ -1,0 +1,117 @@
+---
+title: "Security: current principal, current user, and claim types"
+sidebarTitle: "Security"
+description: "ICurrentPrincipalAccessor, ICurrentUser, the AbpClaimTypes registry, and IStringEncryptionService for opaque secrets."
+---
+
+`Volo.Abp.Security` is the abstraction that decouples ABP code from `HttpContext`. Everything that needs to know "who is the caller" reads `ICurrentUser` (or, for advanced scenarios, the raw `ClaimsPrincipal` via `ICurrentPrincipalAccessor`). The same APIs work in MVC, Blazor Server, background jobs, hosted services, and unit tests — only the underlying principal source changes.
+
+## `ICurrentPrincipalAccessor`
+
+```csharp
+// framework/src/Volo.Abp.Security/Volo/Abp/Security/Claims/ICurrentPrincipalAccessor.cs
+public interface ICurrentPrincipalAccessor
+{
+    ClaimsPrincipal Principal { get; }
+    IDisposable Change(ClaimsPrincipal principal);
+}
+```
+
+`CurrentPrincipalAccessorBase` (`CurrentPrincipalAccessorBase.cs`) stacks principals using `AsyncLocal<ClaimsPrincipal>` so `using (_accessor.Change(otherPrincipal)) { … }` works correctly inside `async` flows. The base reads the *outermost* principal via the abstract `GetClaimsPrincipal()` method that concrete accessors override:
+
+- `ThreadCurrentPrincipalAccessor` (`ThreadCurrentPrincipalAccessor.cs`) — uses `Thread.CurrentPrincipal as ClaimsPrincipal`. Registered as `ISingletonDependency` in the abstractions; suitable for non-HTTP hosts.
+- `HttpContextCurrentPrincipalAccessor` (`framework/src/Volo.Abp.AspNetCore/Volo/Abp/AspNetCore/Security/Claims/HttpContextCurrentPrincipalAccessor.cs`) — replaces it inside MVC apps to pull `HttpContext.User`.
+- `Volo.Abp.Identity` uses `Change(...)` during impersonation to temporarily swap the principal for the impersonated user.
+
+This stacking is also how ABP's `BackgroundJobs` and `DistributedEventBus` re-establish the original caller's claims when running a job: they capture the principal at enqueue time and `_accessor.Change(savedPrincipal)` it back at execution time.
+
+## `ICurrentUser`
+
+The `Users` namespace lifts the most common claim reads into a friendlier surface:
+
+```csharp
+// framework/src/Volo.Abp.Security/Volo/Abp/Users/ICurrentUser.cs
+public interface ICurrentUser
+{
+    bool IsAuthenticated { get; }
+    Guid? Id { get; }
+    string? UserName, Name, SurName, PhoneNumber, Email;
+    bool PhoneNumberVerified, EmailVerified;
+    Guid? TenantId;
+    string[] Roles { get; }
+    Claim? FindClaim(string claimType);
+    Claim[] FindClaims(string claimType);
+    Claim[] GetAllClaims();
+    bool IsInRole(string roleName);
+}
+```
+
+`CurrentUser` (`Users/CurrentUser.cs`) is the default transient implementation that delegates to `ICurrentPrincipalAccessor.Principal`:
+
+```csharp
+public virtual bool IsAuthenticated => Id.HasValue;
+public virtual Guid? Id => _principalAccessor.Principal?.FindUserId();
+public virtual string? UserName => this.FindClaimValue(AbpClaimTypes.UserName);
+public virtual Guid? TenantId => _principalAccessor.Principal?.FindTenantId();
+public virtual string[] Roles =>
+    FindClaims(AbpClaimTypes.Role).Select(c => c.Value).Distinct().ToArray();
+```
+
+`CurrentUserExtensions` (`Users/CurrentUserExtensions.cs`) adds helpers like `FindClaimValue<T>`, `IsInAnyRole`, and `IsAnonymous` so consumers rarely touch `ClaimsPrincipal` directly.
+
+## `AbpClaimTypes`
+
+`AbpClaimTypes` (`Claims/AbpClaimTypes.cs`) is the static registry of claim names ABP looks for. The defaults are a mix of OIDC standard names and ABP-specific extensions:
+
+| Property | Default value | Purpose |
+| --- | --- | --- |
+| `UserName` | `ClaimTypes.Name` | Username for display. |
+| `Name`, `SurName` | `ClaimTypes.GivenName`, `ClaimTypes.Surname` | First / last name. |
+| `UserId` | `ClaimTypes.NameIdentifier` | Parsed to `Guid` by `CurrentUser.Id`. |
+| `Role` | `ClaimTypes.Role` | Multi-valued. |
+| `Email`, `EmailVerified` | `ClaimTypes.Email`, `"email_verified"` | OIDC standard. |
+| `PhoneNumber`, `PhoneNumberVerified` | `"phone_number"`, `"phone_number_verified"` | OIDC standard. |
+| `TenantId` | `"tenantid"` | Read by `ICurrentTenant`. |
+| `EditionId` | `"editionid"` | Used by `EditionFeatureValueProvider`. |
+| `ClientId` | `"client_id"` | Used by `ClientPermissionValueProvider`. |
+| `ImpersonatorUserId` / `ImpersonatorTenantId` / `ImpersonatorUserName` / `ImpersonatorTenantName` | matching `"impersonator_*"` | Recorded by `AuditingHelper`. |
+| `SessionId` | `"session_id"` | Tracked for security log-out propagation. |
+| `RememberMe` | `"remember_me"` | Set by the identity cookie. |
+| `Picture` | `"picture"` | Avatar URL. |
+
+Because these are mutable `static` properties, hosts can rebind them (`AbpClaimTypes.TenantId = "tid";`) before any service resolves a principal. The TODO comment in the source notes a future `AbpClaimOptions` may replace the static API.
+
+## Claims principal factory
+
+`IAbpClaimsPrincipalFactory` and `AbpClaimsPrincipalFactory` (`Claims/AbpClaimsPrincipalFactory.cs`) build a `ClaimsPrincipal` from a list of contributors implementing `IAbpClaimsPrincipalContributor`. Modules add contributors to `AbpClaimsPrincipalFactoryOptions.Contributors` to inject additional claims at sign-in time — e.g. `Volo.Abp.Identity` adds session and timezone claims this way.
+
+`IAbpDynamicClaimsPrincipalContributor` and `RemoteDynamicClaimsPrincipalContributorBase` / `RemoteDynamicClaimsPrincipalContributorCacheBase` are the seam used by microservice gateways to fetch fresh dynamic claims (e.g. permission grants) on every request without re-issuing the token. `AbpDynamicClaim` / `AbpDynamicClaimCacheItem` describe the cache shape.
+
+## String encryption
+
+The `Encryption/` folder provides `IStringEncryptionService` and `StringEncryptionService` for round-trippable secret storage (settings values, connection strings, etc.). Configuration lives in `AbpStringEncryptionOptions`:
+
+```csharp
+// Volo/Abp/Security/Encryption/AbpStringEncryptionOptions.cs
+public string DefaultPassPhrase { get; set; } = "gsKnGZ041HLL4IM8";
+public byte[] DefaultSalt { get; set; }              // length 16
+public byte[] InitVectorBytes { get; set; }          // length 16
+public int Keysize { get; set; } = 256;
+```
+
+Set `DefaultPassPhrase` to a deployment-specific secret in production — the framework default is documented to be replaced.
+
+## Practical recipes
+
+- **Background jobs.** Snapshot `ICurrentPrincipalAccessor.Principal` at enqueue, then `using (_accessor.Change(saved))` inside the handler so audit and permission checks see the original caller.
+- **Impersonation.** `using (_accessor.Change(impersonatedPrincipal))` swaps identity for the block; the audit log records both `UserId` and `ImpersonatorUserId` from the original principal.
+- **Tests.** Bind a stub `ICurrentPrincipalAccessor` returning a hand-built `ClaimsPrincipal` to assert auth-aware code paths without an HTTP context.
+- **Custom claims.** Implement `IAbpClaimsPrincipalContributor` and register it; the factory will add your claims to every issued principal.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Authorization" href="/framework/cross-cutting/authorization" />
+  <Card title="Auditing" href="/framework/cross-cutting/auditing" />
+  <Card title="Settings" href="/framework/cross-cutting/settings" />
+</CardGroup>

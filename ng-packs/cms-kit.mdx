@@ -1,0 +1,42 @@
+---
+title: "@abp/ng.cms-kit — Blog, Pages, Menus, Comments"
+sidebarTitle: "cms-kit"
+description: "CMS Kit Angular package: split admin and public secondary entry points for blog posts, pages, menus, comments, tags, and CMS settings."
+---
+
+`@abp/ng.cms-kit` (`npm/ng-packs/packages/cms-kit/`) packages the Angular UI for the CMS Kit module. It splits the admin surface from the public surface so public sites can stay slim.
+
+## Source layout
+
+```
+packages/cms-kit/
+├── proxy/                       // generated proxy entry (@abp/ng.cms-kit/proxy)
+├── admin/                       // secondary entry (@abp/ng.cms-kit/admin)
+│   ├── ng-package.json
+│   ├── config/
+│   └── src/
+│       ├── cms-kit-admin.routes.ts
+│       └── components/
+│           ├── blog-posts/, blogs/
+│           ├── comments/
+│           ├── pages/
+│           ├── menus/
+│           ├── tags/
+│           ├── global-resources/
+│           └── cms-settings/
+├── public/                      // secondary entry (@abp/ng.cms-kit/public)
+│   ├── ng-package.json
+│   ├── config/
+│   └── src/lib/
+│       ├── cms-kit-public.routes.ts
+│       ├── components/
+│       └── resolvers/
+└── src/                         // (umbrella primary entry)
+```
+
+The `admin/` entry is consumed by back-office apps (`@abp/ng.cms-kit/admin`), `public/` by the customer-facing site (`@abp/ng.cms-kit/public`). Each has its own routes file and `provideAbpCmsKitAdmin` / `provideAbpCmsKitPublic` config function.
+
+<CardGroup cols={2}>
+  <Card title="components" href="/ng-packs/components">Extensible table used in admin lists</Card>
+  <Card title="npm cms-kit packs" href="/npm-packs/cms-kit-packs">Browser-side libs (markdown-it, tui-editor, …)</Card>
+</CardGroup>

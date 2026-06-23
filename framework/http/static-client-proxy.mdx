@@ -1,0 +1,132 @@
+---
+title: "Static HTTP Client Proxy: Generated Class-Based Clients"
+sidebarTitle: "Static Proxy"
+description: "How AddStaticHttpClientProxies and the abp generate-proxy CLI produce ClientProxyBase-derived classes that ship the routing table at compile time."
+---
+
+The static client proxy is the alternative to the runtime dynamic proxy described in [Dynamic Client Proxy](/framework/http/dynamic-client-proxy). Instead of resolving the action description model at first call, the build pipeline emits one C# class per AppService interface with the route, HTTP method, and parameter binding already filled in. The result is a regular class that you can step through with a debugger and which works in environments (Blazor WebAssembly published to a static host, AOT-compiled MAUI client) where downloading `/api/abp/api-definition` is undesirable or impossible.
+
+Source: `framework/src/Volo.Abp.Http.Client/Volo/Abp/Http/Client/StaticProxying/` and the shared `ClientProxying/` runtime. Generation is driven by `framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/Commands/GenerateProxyCommand.cs` and `framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ServiceProxying/CSharp/CSharpServiceProxyGenerator.cs`.
+
+## ClientProxyBase: the runtime that generated classes extend
+
+Every generated class subclasses `ClientProxyBase<TService>` (`framework/src/Volo.Abp.Http.Client/Volo/Abp/Http/Client/ClientProxying/ClientProxyBase.cs`). The base class supplies the entire HTTP pipeline — URL building, headers, authentication, error mapping — that the dynamic proxy also uses. A generated class only declares the typed wrappers per method:
+
+```csharp
+[Dependency(ReplaceServices = true)]
+[ExposeServices(typeof(IBookAppService), typeof(BookClientProxy))]
+public partial class BookClientProxy : ClientProxyBase<IBookAppService>, IBookAppService
+{
+    public virtual async Task<BookDto> GetAsync(Guid id)
+    {
+        return await RequestAsync<BookDto>(
+            nameof(GetAsync),
+            new ClientProxyRequestTypeValue
+            {
+                { typeof(Guid), id }
+            });
+    }
+
+    public virtual async Task<PagedResultDto<BookDto>> GetListAsync(GetBookListInput input)
+    {
+        return await RequestAsync<PagedResultDto<BookDto>>(
+            nameof(GetListAsync),
+            new ClientProxyRequestTypeValue
+            {
+                { typeof(GetBookListInput), input }
+            });
+    }
+}
+```
+
+`RequestAsync(methodName, ClientProxyRequestTypeValue)` is the entry point. Internally it builds a *method unique name* by concatenating the interface full name, the method name, and the type-handled parameter list:
+
+```csharp
+var methodUniqueName = $"{typeof(TService).FullName}.{methodName}.{string.Join("-", arguments.Values.Select(x => TypeHelper.GetFullNameHandlingNullableAndGenerics(x.Key)))}";
+var action = ClientProxyApiDescriptionFinder.FindAction(methodUniqueName);
+```
+
+The static `IClientProxyApiDescriptionFinder` (default: `ClientProxyApiDescriptionFinder`) backs the call with a dictionary that the generator populated at compile time. The action description lookup is therefore O(1) and offline.
+
+## Registration: `AddStaticHttpClientProxies`
+
+`ServiceCollectionHttpClientProxyExtensions.cs`:
+
+```csharp
+public static IServiceCollection AddStaticHttpClientProxies(
+    this IServiceCollection services,
+    Assembly assembly,
+    string remoteServiceConfigurationName = RemoteServiceConfigurationDictionary.DefaultName,
+    ApplicationServiceTypes applicationServiceTypes = ApplicationServiceTypes.All)
+```
+
+Per-type behaviour: for every interface in `assembly` that extends `IRemoteService`, it:
+
+1. Calls `AddHttpClientFactory(services, remoteServiceConfigurationName)` so a named `HttpClient` exists under that key.
+2. Adds an `HttpClientProxyConfig(serviceType, remoteServiceConfigurationName)` to `AbpHttpClientOptions.HttpClientProxies`.
+3. Does *not* register a Castle proxy. The generated class already implements the interface, so DI resolution lands on it directly (it self-registers via `[Dependency(ReplaceServices = true)]` and `[ExposeServices(...)]`).
+
+`AbpHttpClientStaticProxyingOptions.BindingFromQueryTypes` is the one knob you may need to set:
+
+```csharp
+public class AbpHttpClientStaticProxyingOptions
+{
+    public List<Type> BindingFromQueryTypes { get; }
+}
+```
+
+It lists DTO types whose top-level properties are bound from the query string rather than serialised as JSON in the body — useful for GET endpoints whose input DTO must be expressed as `?foo=bar&baz=qux`.
+
+## The generator: `abp generate-proxy -t csharp`
+
+`GenerateProxyCommand` (CLI entry point) takes the following shape:
+
+```text
+abp generate-proxy -t csharp -url https://my-api/ \
+                   --module identity \
+                   --folder ClientProxies/Identity
+```
+
+Switches that matter:
+
+| Switch | Effect |
+| --- | --- |
+| `-t csharp` | Selects `CSharpServiceProxyGenerator`. Other generators: `ng` (Angular), `js`, `vue`, `react`. |
+| `-url` | Base URL where `/api/abp/api-definition` is fetched. |
+| `-m` / `--module` | Limits generation to a single module (e.g. `identity`, `account`). |
+| `-o` / `--output` | Output file (defaults to per-controller files in the calling project). |
+| `--folder` | Output folder relative to the project. |
+| `--without-contracts` | Skip DTO regeneration when the `.Application.Contracts` package is already referenced. |
+| `--api-name` | Picks the named `RemoteServiceConfiguration` for the generated proxies. |
+| `-t json` | Emits the raw `ApplicationApiDescriptionModel` JSON to disk for inspection. |
+
+The CLI host loads the calling project's module graph, fetches the API definition from `-url`, then walks `ApplicationApiDescriptionModel.Modules → Controllers → Actions` and writes one `.cs` file per controller (plus DTOs unless `--without-contracts`). The emitted classes embed:
+
+- The remote service name on `[ExposeServices(...)]`.
+- A static initializer that populates `ClientProxyApiDescriptionFinder`'s in-memory dictionary with the `ActionApiDescriptionModel` entries — so `FindAction(methodUniqueName)` returns the action without any HTTP call.
+
+The `MakeProxyJsonFileEmbeddedStep` build step (used by template projects) lets a host embed the description JSON as a resource so the generator can refresh proxies offline.
+
+## Static vs dynamic: a side-by-side
+
+| Concern | Dynamic proxy | Static proxy |
+| --- | --- | --- |
+| Source of action description | Live HTTP `GET /api/abp/api-definition` | Embedded dictionary baked at generation |
+| Startup cost | One JSON fetch per remote service | None |
+| Debuggability | Castle-generated IL; stack frames show `DynamicHttpProxyInterceptor` | Plain C# class; step-into is natural |
+| Reflection at runtime | Heavy (interface dispatch + method match) | None (method name + types are literals) |
+| Suitable for AOT | No (Castle DynamicProxy) | Yes |
+| Suitable for Blazor WebAssembly | Acceptable but adds startup latency | Recommended |
+| Regeneration trigger | None — always current | `abp generate-proxy` after server contract changes |
+
+A solution can mix the two: an internal microservice consumer might use the dynamic proxy while the public Blazor WebAssembly client uses the static one. Both paths converge on `ClientProxyBase<TService>.RequestAsync(ClientProxyRequestContext)`, so behaviour (error mapping, authentication, headers) is identical.
+
+## Where the generation lives
+
+- `framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ServiceProxying/CSharp/CSharpServiceProxyGenerator.cs` — the C# emitter. Walks the model and writes the per-controller `.cs` files using a Scriban-style template embedded in the generator.
+- `framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/ServiceProxying/AbpCliServiceProxyOptions.cs` — registers generators by name (`csharp`, `ng`, `js`, `vue`, `react`).
+- `framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/Commands/ProxyCommandBase.cs` — shared parsing for the proxy command family (`generate-proxy`, `remove-proxy`).
+
+When the contract changes, regenerate with `abp generate-proxy -t csharp -url <api>` and commit the diff — the generated files are deliberately partial (`public partial class BookClientProxy`) so you can extend them in a non-generated file without losing changes on the next run.
+
+For the underlying request mechanics shared with the dynamic proxy, read [Dynamic Client Proxy](/framework/http/dynamic-client-proxy). For named remote-service routing, see [Remote Services](/framework/http/remote-services).

@@ -1,0 +1,51 @@
+---
+title: "@abp/ng.theme.basic — Default Angular Theme"
+sidebarTitle: "theme.basic"
+description: "The reference Angular theme that wires layouts, navbar, logo, validation-error display, and nav items on top of @abp/ng.theme.shared."
+---
+
+`@abp/ng.theme.basic` (`npm/ng-packs/packages/theme-basic/`) is the **default theme** for ABP Angular apps — Bootstrap-flavored, free, and used as the implementation reference for paid themes (LeptonX).
+
+## Source layout
+
+```
+packages/theme-basic/src/lib/
+├── components/
+│   ├── application-layout/      // ApplicationLayoutComponent — sidebar + topbar shell
+│   ├── account-layout/          // AccountLayoutComponent — login/register shell
+│   ├── empty-layout/            // bare layout for landing pages
+│   ├── logo/                    // brand logo component
+│   ├── nav-items/               // renders NavItemsService entries
+│   ├── page-alert-container/    // host for PageAlertService alerts
+│   ├── routes/                  // sidebar route tree
+│   └── validation-error/        // form field error display
+├── constants/
+├── handlers/
+├── providers/
+├── services/
+├── theme-basic.module.ts
+└── tokens/
+```
+
+## Layouts
+
+Apps register the three layouts under route `data`:
+
+```typescript
+{ path: '',          component: DynamicLayoutComponent, data: { layout: eLayoutType.application } }
+{ path: 'account',   component: DynamicLayoutComponent, data: { layout: eLayoutType.account } }
+{ path: 'landing',   component: DynamicLayoutComponent, data: { layout: eLayoutType.empty } }
+```
+
+`@abp/ng.core`'s `DynamicLayoutComponent` consults a `LayoutMap` token and the chosen theme provides the implementation. `theme-basic` supplies `ApplicationLayoutComponent` (sidebar + navbar + page alerts), `AccountLayoutComponent` (centered card for login/register), and `EmptyLayoutComponent`.
+
+## Navbar & menu wiring
+
+The application layout subscribes to `@abp/ng.theme.shared/NavItemsService` and `UserMenuService` and renders them through `<abp-nav-items>` and `<abp-routes>`. Modules register their entries during configuration — for example `@abp/ng.identity` adds the Users/Roles entries via the same services, so the navbar stays modular.
+
+## Where it fits
+
+<CardGroup cols={2}>
+  <Card title="theme.shared" href="/ng-packs/theme-shared">Provides NavItemsService, ToasterService, modal primitives</Card>
+  <Card title="account" href="/ng-packs/account">Targets the account layout</Card>
+</CardGroup>

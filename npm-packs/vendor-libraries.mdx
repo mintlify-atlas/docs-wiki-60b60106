@@ -1,0 +1,141 @@
+---
+title: "Vendor Library Wrappers — Complete @abp/* Reference"
+sidebarTitle: "Vendor Libraries"
+description: "Exhaustive table of every vendor wrapper under npm/packs/: which third-party library it ships, the npm-resolved version, and how ABP UIs use the asset."
+---
+
+The bulk of `npm/packs/` is a long list of tiny meta-packages that each wrap a
+single third-party browser library and expose it through an `@abp/*` name and
+an `abp.resourcemapping.js` mapping. The pattern lets a UI project pin
+**framework-versioned** asset packages instead of upstream npm versions, and
+gives ABP one place to upgrade them.
+
+Each row below was generated from
+`npm/packs/<dir>/package.json` — `dependencies` and `version: 10.5.0-rc.4`.
+
+## Bootstrap & jQuery family
+
+| Package dir | Vendor (npm) | ABP uses it for |
+| --- | --- | --- |
+| `jquery` | `jquery ~3.7.1` | The DOM library that every other jQuery-plugin pack depends on. Pulled in via `@abp/jquery → @abp/core`. |
+| `jquery-form` | `jquery-form ^4.3.0` | AJAX form submission helpers used by older MVC form widgets. |
+| `jquery-validation` | `jquery-validation ^1.21.0` | Client-side validation engine. |
+| `jquery-validation-unobtrusive` | `jquery-validation-unobtrusive ^4.0.0` | Razor's `@Html.ValidationFor` integration; required by every MVC form. |
+| `bootstrap` | `bootstrap ^5.3.8` (+ `@abp/popper.js`) | Grid, navbar, modals, tooltips — the visual core of the MVC and Blazor Server themes. |
+| `bootstrap-datepicker` | `bootstrap-datepicker ^1.10.1` | The date picker exposed by `<abp-input>` for `DateTime` fields. |
+| `bootstrap-daterangepicker` | `bootstrap-daterangepicker ^3.1.0` (+ `@abp/moment`) | Range filter on audit-log / report screens. |
+| `popper.js` | `@popperjs/core ^2.11.8` | Tooltip / popover positioning required by Bootstrap. |
+
+## Tables, forms, and notifications
+
+| Package dir | Vendor (npm) | ABP uses it for |
+| --- | --- | --- |
+| `datatables.net` | `datatables.net ^2.3.4` | The grid engine that powers every CRUD list page. |
+| `datatables.net-bs4` | `datatables.net-bs4` (transitive) | Legacy Bootstrap 4 styling. |
+| `datatables.net-bs5` | `datatables.net-bs5 ^2.3.4` | Default Bootstrap 5 styling for DataTables. |
+| `select2` | `select2 ^4.0.13` | Enhanced `<select>` dropdowns with search and tagging. |
+| `sweetalert2` | `sweetalert2 ^11.23.0` | Replacement provider for `abp.message.*` / `abp.notify.*`. |
+| `toastr` | `toastr ^2.1.4` | Alternative `abp.notify` toast implementation. |
+| `malihu-custom-scrollbar-plugin` | `malihu-custom-scrollbar-plugin ^3.1.5` | Custom-styled sidebar scrollbars. |
+
+## Time, localization, and utilities
+
+| Package dir | Vendor (npm) | ABP uses it for |
+| --- | --- | --- |
+| `moment` | `moment ^2.30.1` | Legacy time helper still used by the date-range picker. |
+| `luxon` | `luxon ^3.7.2` | Modern replacement for moment, used by newer UI code. |
+| `timeago` | `timeago ^1.6.7` | "5 minutes ago" relative-time strings in audit/activity widgets. |
+| `lodash` | `lodash ^4.18.1` | General utility belt used by MVC scripts. |
+| `slugify` | `slugify ^1.6.6` | CMS Kit page URL slug suggestions. |
+| `flag-icon-css` | `flag-icon-css ^4.1.7` | Older flag sprite (kept for compatibility). |
+| `flag-icons` | `flag-icons 7.5.0` | Current flag-icon sprite shown in the language picker. |
+| `font-awesome` | `@fortawesome/fontawesome-free ^7.0.1` | All toolbar and menu icons across MVC + Blazor Server themes. |
+
+## Editors, syntax & rendering
+
+| Package dir | Vendor (npm) | ABP uses it for |
+| --- | --- | --- |
+| `codemirror` | `codemirror ^6.0.2` + `@codemirror/{state,view,lang-css,lang-javascript}` | Embedded code editor inside the Markdown editor and the LeptonX admin. |
+| `markdown-it` | `markdown-it ^14.1.0` | Markdown renderer used by the CMS Kit Markdown editor. |
+| `tui-editor` | `@abp/jquery` + `@abp/prismjs` (Toast UI Editor) | Rich Markdown WYSIWYG used by CMS Kit and the Blogging module. |
+| `highlight.js` | `@highlightjs/cdn-assets ~11.11.1` | Syntax highlighting in the **public** CMS Kit pages. |
+| `prismjs` | `prismjs ^1.30.0` (+ `@abp/clipboard`) | Syntax highlighting in admin tooling, docs site, and the Blogging module. |
+| `anchor-js` | `anchor-js ^5.0.0` | Adds anchor links to headings (used by docs and blog pages). |
+| `clipboard` | `clipboard ^2.0.11` | "Copy to clipboard" buttons in code blocks. |
+
+## Trees, uploads, media
+
+| Package dir | Vendor (npm) | ABP uses it for |
+| --- | --- | --- |
+| `jstree` | `jstree ^3.3.17` | Tree control for menu and page hierarchy editors. |
+| `uppy` | `uppy ^5.1.2` | File-upload widget for the CMS Kit media library. |
+| `cropperjs` | `cropperjs ^1.6.2` | Image-crop dialog when uploading profile pictures. |
+| `owl.carousel` | `owl.carousel ^2.3.4` | Homepage carousels in the Blogging module. |
+| `qrcode` | (no upstream dep) | QR-code rendering helper for 2FA setup. |
+| `star-rating-svg` | `star-rating-svg ^3.5.0` | Star-rating control used by CMS Kit ratings. |
+| `chart.js` | `chart.js ^4.5.0` | Charts on the host / tenant dashboards. |
+| `zxcvbn` | `zxcvbn ^4.4.2` | Password-strength meter on registration / change-password forms. |
+
+## Real-time and Vue.js bridge
+
+| Package dir | Vendor (npm) | ABP uses it for |
+| --- | --- | --- |
+| `signalr` | `@microsoft/signalr ~9.0.6` | Browser side of `Volo.Abp.AspNetCore.SignalR`. |
+| `vue` | `vue ~2.6.12` | Bundles Vue 2 for the (legacy) Vue UI samples. |
+| `vee-validate` | `vee-validate ~3.4.4` (+ `@abp/vue`) | Form validation rules for the Vue samples. |
+
+## Meta and tooling packs
+
+These packages don't wrap a single vendor — they aggregate others.
+
+| Package dir | Composition | Role |
+| --- | --- | --- |
+| `core` | own `abp.js` + `@abp/utils` | The runtime — see [Core & Utils](/npm-packs/core-and-utils). |
+| `utils` | `just-compare` only | TypeScript LinkedList shipped to `@abp/ng.core`. |
+| `aspnetcore.mvc.ui` | only `ansi-colors` | Placeholder for MVC UI consumers — see [MVC UI bundles](/npm-packs/aspnetcore-mvc-ui). |
+| `aspnetcore.mvc.ui.theme.shared` | 14 vendor packs | The MVC vendor bundle. |
+| `aspnetcore.mvc.ui.theme.basic` | `→ theme.shared` | The default MVC theme name. |
+| `aspnetcore.components.server.theming` | `bootstrap` + `font-awesome` | Blazor Server theming — see [Blazor theming](/npm-packs/theme-shared-and-basic). |
+| `aspnetcore.components.server.basictheme` | `→ theming` | Default Blazor Server theme name. |
+| `cms-kit` | `→ cms-kit.admin + cms-kit.public` | CMS Kit aggregator — see [CMS Kit packs](/npm-packs/cms-kit-packs). |
+| `cms-kit.admin` | 6 editor packs | CMS Kit authoring assets. |
+| `cms-kit.public` | `highlight.js + star-rating-svg` | CMS Kit read-side assets. |
+| `blogging` | `theme.shared + owl.carousel + prismjs + tui-editor` | Legacy Blogging module bundle. |
+| `docs` | `anchor-js + clipboard + malihu-custom-scrollbar-plugin + popper.js + prismjs` | Asset bundle for the abp.io docs site. |
+| `virtual-file-explorer` | `clipboard + prismjs` | Embedded file-tree viewer used by the docs / dev tools. |
+
+## Notes & conventions
+
+- Every wrapper is at framework version **`10.5.0-rc.4`** at this snapshot. The
+  `npm/packs/npm-check-updates.ps1` script (sibling to the package
+  directories) is what the release process uses to bulk-update upstream
+  versions across all packs.
+- A package's `dependencies` is the entire contract — none of these directories
+  contain JavaScript source beyond `abp.resourcemapping.js`. The mapping
+  pattern is invariant:
+
+  ```javascript
+  module.exports = {
+    mappings: { "@node_modules/<lib>/dist/*": "@libs/<dest>/" }
+  };
+  ```
+
+- The CLI side that consumes these mappings is
+  `framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/LIbs/InstallLibsService.cs`.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Overview" href="/npm-packs/overview">
+    The shape of `npm/packs/` as a whole.
+  </Card>
+  <Card title="@abp/core & @abp/utils" href="/npm-packs/core-and-utils">
+    The runtime that all of these packs hang off.
+  </Card>
+  <Card title="MVC UI bundles" href="/npm-packs/aspnetcore-mvc-ui">
+    How the MVC layer composes the wrappers.
+  </Card>
+  <Card title="CMS Kit packs" href="/npm-packs/cms-kit-packs">
+    How CMS Kit composes the editor wrappers.
+  </Card>
+</CardGroup>

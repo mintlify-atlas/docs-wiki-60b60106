@@ -1,0 +1,90 @@
+---
+title: "@abp/ng.components — Shared UI Building Blocks"
+sidebarTitle: "components"
+description: "Reusable Angular components shipped with ABP: page, breadcrumb, chart.js, tree, extensible (table/form/toolbar), lookup, and dynamic-form."
+---
+
+`@abp/ng.components` (`npm/ng-packs/packages/components/`) packages the cross-cutting UI primitives every ABP module uses. Each capability is an ng-package **secondary entry point** so apps can deep-import only what they need (e.g. `import { ExtensibleTableComponent } from '@abp/ng.components/extensible';`).
+
+## Entry points
+
+| Folder | Secondary entry | Purpose |
+| --- | --- | --- |
+| `page/` | `@abp/ng.components/page` | `<abp-page>` shell with title, breadcrumb, and toolbar slots |
+| `chart.js/` | `@abp/ng.components/chart.js` | `<abp-chart>` Angular wrapper over Chart.js |
+| `tree/` | `@abp/ng.components/tree` | Tree control used by permission/feature dialogs |
+| `extensible/` | `@abp/ng.components/extensible` | Data-driven table, form, toolbar, grid-actions, multi-select, date-time-picker |
+| `lookup/` | `@abp/ng.components/lookup` | Lookup-select widget for foreign-key fields |
+| `dynamic-form/` | `@abp/ng.components/dynamic-form` | Config-driven Reactive Form (group/array/field) |
+
+The root entry (`src/public-api.ts`) is intentionally thin — there is no umbrella module; consumers reach into the per-feature folders.
+
+## page
+
+`page/src/`:
+
+```
+page.component.ts        // <abp-page [title] [breadcrumbItems]>
+page.component.html
+page.module.ts
+page-part.directive.ts   // *abpPagePart="'toolbar'" projection slot
+page-parts.component.ts
+```
+
+`<abp-page>` is the standard wrapper for admin screens. You declare named slots (`title`, `breadcrumb`, `toolbar`, `content`) with the `abpPagePart` structural directive and the component projects them into the right places.
+
+## chart.js
+
+`chart.js/src/chart.component.ts` is a thin Angular wrapper that takes a `ChartConfiguration` and renders into a `<canvas>` via the Chart.js library (vendored by `@abp/chart.js`). `widget-utils.ts` provides helpers for the widget system used by dashboard modules.
+
+## extensible (the "data-driven" stack)
+
+`extensible/src/lib/components/`:
+
+```
+extensible-table/        // ExtensibleTableComponent + extensible-table-row-detail
+extensible-form/         // form rendered from ePropList metadata
+abstract-actions/        // shared dropdown actions
+grid-actions/            // row-level action menu
+page-toolbar/            // top-of-page toolbar with toolbar-actions
+multi-select/
+date-time-picker/
+```
+
+Modules like `@abp/ng.identity` describe their entities through `ePropList` and `eActionList` (extension metadata in `@abp/ng.theme.shared/extensions`). Those declarations are rendered by `ExtensibleTableComponent` / `ExtensibleFormComponent` so the columns, filters, row actions, and create/edit forms can be extended downstream **without** forking the module.
+
+## lookup
+
+`lookup/src/lib/` wires `<abp-lookup-select>`: a typeahead-style picker that calls a lookup endpoint (`GET /api/.../lookup`) and binds the resulting `{ id, displayName }` pair into a reactive form. Used heavily by the auto-generated CRUD UIs the schematics produce.
+
+## dynamic-form
+
+```
+dynamic-form/
+├── dynamic-form.component.ts        // <abp-dynamic-form [props]>
+├── dynamic-form.models.ts           // FormProp, FormPropList, …
+├── dynamic-form.service.ts
+├── dynamic-form-field/              // single-field renderer
+├── dynamic-form-group/              // nested FormGroup
+└── dynamic-form-array/              // nested FormArray
+```
+
+It walks a tree of `FormProp` descriptors (input type, validators, options, conditional visibility) and emits the matching `FormGroup`. The same description format powers `ExtensibleFormComponent`'s create/edit dialogs.
+
+## tree
+
+`tree/src/lib/` provides a hierarchical checklist used by:
+
+- `@abp/ng.permission-management` — to render the policy tree of a role/user.
+- `@abp/ng.feature-management` — to group features by provider.
+
+It supports tri-state checkboxes (granted / inherited / denied) and search filtering.
+
+## Cross-links
+
+<CardGroup cols={2}>
+  <Card title="theme-shared" href="/ng-packs/theme-shared">Hosts modals these components open into</Card>
+  <Card title="permission-management" href="/ng-packs/permission-management">Consumer of the tree component</Card>
+  <Card title="identity" href="/ng-packs/identity">Consumer of extensible-table</Card>
+  <Card title="schematics" href="/ng-packs/schematics-generators">Generators emit dynamic-form descriptors</Card>
+</CardGroup>

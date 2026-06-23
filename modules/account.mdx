@@ -1,0 +1,86 @@
+---
+title: "Account Module: Registration, Login, Profile and Emailing"
+sidebarTitle: "Account"
+description: "Deep dive into the Account module's app services, emailing pipeline, settings, and the OpenIddict / IdentityServer host packages."
+---
+
+The Account module sits on top of [Identity](/modules/identity) and supplies the **end-user surface**: register, login, logout, forgot/reset password, account management, two-factor, external login, and the profile page. It also ships two host packages that turn a web app into a full OAuth2/OIDC authorization server — one for [OpenIddict](/modules/openiddict) and one for legacy [IdentityServer](/modules/identity-server).
+
+Source layout under `/home/daytona/repos/abpframework/abp/modules/account/src/`:
+
+| Project | Purpose |
+| --- | --- |
+| `Volo.Abp.Account.Application.Contracts` | DTOs + `IAccountAppService`, `IProfileAppService`, `IDynamicClaimsAppService` |
+| `Volo.Abp.Account.Application` | App service implementations + emailing + settings provider |
+| `Volo.Abp.Account.HttpApi` / `*.HttpApi.Client` | REST controllers + typed proxies |
+| `Volo.Abp.Account.Web` | MVC Razor Pages: Login, Register, ForgotPassword, Manage, … |
+| `Volo.Abp.Account.Web.OpenIddict` | Login UI that talks to OpenIddict authorize/token endpoints |
+| `Volo.Abp.Account.Web.IdentityServer` | Login UI + `Consent` page for Duende IdentityServer hosts |
+| `Volo.Abp.Account.Blazor` / `*.Blazor.MudBlazor` | Blazor counterparts for the same flows |
+| `Volo.Abp.Account.Installer` | NuGet `content` payload for the ABP CLI |
+
+## Application services
+
+All under `modules/account/src/Volo.Abp.Account.Application/Volo/Abp/Account/`:
+
+### `AccountAppService` (`AccountAppService.cs`)
+
+Anonymous-friendly entry points used by the login/register flow:
+
+```csharp
+public virtual async Task<IdentityUserDto> RegisterAsync(RegisterDto input)
+{
+    await CheckSelfRegistrationAsync();
+    await IdentityOptions.SetAsync();
+
+    var user = new IdentityUser(GuidGenerator.Create(), input.UserName, input.EmailAddress, CurrentTenant.Id);
+    input.MapExtraPropertiesTo(user);
+
+    (await UserManager.CreateAsync(user, input.Password)).CheckErrors();
+    await UserManager.SetEmailAsync(user, input.EmailAddress);
+    await UserManager.AddDefaultRolesAsync(user);
+
+    return ObjectMapper.Map<IdentityUser, IdentityUserDto>(user);
+}
+```
+
+Other operations:
+
+- `SendPasswordResetCodeAsync` → `IAccountEmailer.SendPasswordResetLinkAsync`.
+- `VerifyPasswordResetTokenAsync` / `ResetPasswordAsync` → `UserManager.VerifyUserTokenAsync` and `ResetPasswordAsync`.
+- `CheckSelfRegistrationAsync` honors the `Account.IsSelfRegistrationEnabled` setting.
+
+### `ProfileAppService` (`ProfileAppService.cs`)
+
+`[Authorize]` service for the logged-in user's own profile — get/update profile, change password, send/verify email/phone confirmation codes. Username updates are gated on `IdentitySettingNames.User.IsUserNameUpdateEnabled`.
+
+### `DynamicClaimsAppService` (`DynamicClaimsAppService.cs`)
+
+Single endpoint, `RefreshAsync`, that clears the user's entry in `IdentityDynamicClaimsPrincipalContributorCache` and rebuilds the `ClaimsPrincipal`. UIs call it after a permission/role change so the next request reflects the new claims without forcing a re-login.
+
+## Emailing
+
+`modules/account/src/Volo.Abp.Account.Application/Volo/Abp/Account/Emailing/`:
+
+- `IAccountEmailer` / `AccountEmailer` use ABP's `IEmailSender` + `ITemplateRenderer` to send password-reset, email-confirmation and link-creation emails.
+- `Templates/` ships default Razor email templates registered with the `ITemplateDefinitionProvider`.
+- `AppUrlProviderAccountExtensions.cs` builds back-links using the host's configured `IAppUrlProvider` (so the email's "Reset password" button points to the correct frontend).
+
+## Settings
+
+`Settings/AccountSettingDefinitionProvider.cs` registers Account-specific settings such as `Account.IsSelfRegistrationEnabled`, `Account.EnableLocalLogin`, and lockout / two-factor toggles. They are read at runtime via `ISettingProvider` and configurable per tenant through [Setting Management](/modules/setting-management).
+
+## Web hosts: OpenIddict vs IdentityServer
+
+The base `Volo.Abp.Account.Web` package contains the generic Razor Pages — `Login.cshtml`, `Register.cshtml`, `ForgotPassword.cshtml`, `ResetPassword.cshtml`, `Manage.cshtml`, `SendSecurityCode.cshtml`, `VerifySecurityCode.cshtml`, and external-login callbacks. Two extension packages plug it into an OAuth2/OIDC pipeline:
+
+- **`Volo.Abp.Account.Web.OpenIddict`** — adds `OpenIddictSupportedLoginModel.cs` so the `Login` page interprets the OpenIddict `returnUrl` (authorize request) and issues the correct sign-in. Recommended for new applications.
+- **`Volo.Abp.Account.Web.IdentityServer`** — adds a `Consent.cshtml` page and IdentityServer4/Duende-aware login model. Use when the host runs the legacy [IdentityServer](/modules/identity-server) module.
+
+Both packages reuse the same `AccountAppService` underneath, so business logic, emails, and settings are identical regardless of authorization-server choice.
+
+## Cross-links
+
+- Underlying users, roles, and claim types: [Identity](/modules/identity).
+- Authorization-server entities and `AbpApplicationManager`: [OpenIddict](/modules/openiddict).
+- The legacy alternative: [IdentityServer](/modules/identity-server).

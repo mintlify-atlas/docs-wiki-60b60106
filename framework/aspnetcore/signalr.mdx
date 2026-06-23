@@ -1,0 +1,66 @@
+---
+title: "SignalR Integration: AbpHub and Hub Conventions"
+sidebarTitle: "SignalR"
+description: "AbpHub, AbpHubBase, auto hub mapping, audit/auth hub filters, and how AbpSignalRUserIdProvider integrates ICurrentUser into connections."
+---
+
+`Volo.Abp.AspNetCore.SignalR` is a small adapter that lets SignalR `Hub`s participate in ABP's DI, localization, and current-user/tenant context without writing repetitive boilerplate. Source: `framework/src/Volo.Abp.AspNetCore.SignalR/Volo/Abp/AspNetCore/SignalR/`.
+
+## AbpHub and AbpHub&lt;T&gt;
+
+`AbpHub.cs` is the base class hub implementations inherit from. It does not own services itself — instead it pulls everything lazily from `IAbpLazyServiceProvider`:
+
+```csharp
+public abstract class AbpHub : Hub
+{
+    public IAbpLazyServiceProvider LazyServiceProvider { get; set; } = default!;
+
+    protected ILogger Logger => LazyServiceProvider.LazyGetService<ILogger>(
+        provider => LoggerFactory?.CreateLogger(GetType().FullName!) ?? NullLogger.Instance);
+
+    protected ICurrentUser    CurrentUser    => LazyServiceProvider.LazyGetService<ICurrentUser>()!;
+    protected ICurrentTenant  CurrentTenant  => LazyServiceProvider.LazyGetService<ICurrentTenant>()!;
+    protected IAuthorizationService AuthorizationService
+                                             => LazyServiceProvider.LazyGetService<IAuthorizationService>()!;
+    protected IClock          Clock          => LazyServiceProvider.LazyGetService<IClock>()!;
+    protected IStringLocalizerFactory StringLocalizerFactory
+                                             => LazyServiceProvider.LazyGetService<IStringLocalizerFactory>()!;
+
+    protected IStringLocalizer L { get; }
+    protected Type? LocalizationResource { get; set; } = typeof(DefaultResource);
+}
+```
+
+A strongly-typed variant `AbpHub<T>` (where `T` is the client-callable interface) inherits from `Hub<T>` with the same wiring. Both classes expose `L` — a `IStringLocalizer` that lazily constructs from `LocalizationResource` (defaults to `DefaultResource`, which can be reassigned per hub).
+
+## Auto hub mapping
+
+`AbpSignalRConventionalRegistrar` (an `IConventionalRegistrar`) scans assemblies for `Hub` subclasses and registers them in DI as transient services. `HubRouteAttribute` lets a hub declare its endpoint:
+
+```csharp
+[HubRoute("/signalr/chat")]
+public class ChatHub : AbpHub
+{
+    public Task SendAsync(string message) => Clients.All.SendAsync("ReceiveMessage", message);
+}
+```
+
+Hubs without `[HubRoute]` get a default route derived from the type name. `DisableAutoHubMapAttribute` opts a specific hub out of automatic endpoint mapping when the application wants to map it manually.
+
+`HubConfig` / `HubConfigList` (used inside `AbpSignalROptions`) track which hubs have been mapped and which routes they own — the framework uses this to call `endpoints.MapHub<T>(...)` for every discovered hub during `OnApplicationInitialization`.
+
+## Hub filters
+
+The module registers two cross-cutting `IHubFilter`s:
+
+- `AbpHubContextAccessorHubFilter` (`AbpHubContextAccessorHubFilter.cs`) pushes the current `HubInvocationContext` onto `IAbpHubContextAccessor` so background code invoked from a hub method can still read the connection ID, user, and tenant. The default accessor is `DefaultAbpHubContextAccessor`.
+- `AbpAuthenticationHubFilter` (`Authentication/AbpAuthenticationHubFilter.cs`) enforces `[Authorize]` semantics, populates the principal, and resolves the tenant from the connection.
+- `AbpAuditHubFilter` (`Auditing/AbpAuditHubFilter.cs`) records hub-method invocations into the audit log scope, with `AspNetCoreSignalRAuditLogContributor` adding connection-id and hub-name metadata.
+
+## User identity
+
+`AbpSignalRUserIdProvider` (`AbpSignalRUserIdProvider.cs`) implements `IUserIdProvider` by returning `ICurrentUser.Id?.ToString()`. This makes `Clients.User(userId)` and `await Clients.User(currentUser.Id).SendAsync(...)` work with ABP's identity model out of the box.
+
+The Blazor Server integration (`Volo.Abp.AspNetCore.Components.Server`) declares a dependency on this module so that the `/_blazor` SignalR endpoint inherits the same audit/auth/user-id filters.
+
+For broader context — middleware ordering, `ICurrentUser`, audit logging — see [ASP.NET Core Overview](/framework/aspnetcore/overview).

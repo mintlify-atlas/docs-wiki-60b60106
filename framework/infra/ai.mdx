@@ -1,0 +1,63 @@
+---
+title: "AI Workspaces, Chat Clients, and Semantic Kernel"
+sidebarTitle: "AI"
+description: "Configure multiple AI workspaces with Microsoft.Extensions.AI chat clients and Semantic Kernel kernels exposed through typed accessors."
+---
+
+`Volo.Abp.AI.Abstractions` defines minimal contracts so application code can depend on AI without binding to a vendor SDK; `Volo.Abp.AI` provides the wiring that turns a configuration tree into keyed `IChatClient` and `Kernel` services.
+
+## Workspaces
+
+A **workspace** is a named bundle of chat-client and kernel configuration. The default workspace is `"Default"`:
+
+```csharp framework/src/Volo.Abp.AI/Volo/Abp/AI/AbpAIModule.cs
+public const string DefaultWorkspaceName = "Default";
+```
+
+You configure workspaces through `AbpAIWorkspaceOptions`. For each workspace `AbpAIModule.ConfigureServices` calls `ConfigureChatClient` and `ConfigureKernel`, registering keyed services so multiple providers (e.g., OpenAI for one team, Azure OpenAI for another) coexist:
+
+```csharp framework/src/Volo.Abp.AI/Volo/Abp/AI/AbpAIModule.cs
+context.Services.AddKeyedChatClient(
+    serviceName,
+    provider => workspaceConfig.ChatClient.Builder.Build(provider),
+    ServiceLifetime.Transient);
+
+if (workspaceConfig.Name == DefaultWorkspaceName)
+{
+    context.Services.AddTransient<IChatClient>(
+        sp => sp.GetRequiredKeyedService<IChatClient>(serviceName));
+}
+```
+
+The default workspace is additionally registered as a non-keyed singleton of `IChatClient` and `Kernel`, so simple apps can inject the abstractions directly. Names of all configured workspaces are tracked on `AbpAIOptions.ConfiguredWorkspaceNames`.
+
+## Accessors
+
+```csharp framework/src/Volo.Abp.AI.Abstractions/Volo/Abp/AI/IChatClientAccessor.cs
+public interface IChatClientAccessor
+{
+    IChatClient? ChatClient { get; }
+}
+
+public interface IChatClientAccessor<TWorkSpace> : IChatClientAccessor
+    where TWorkSpace : class
+{
+}
+```
+
+```csharp framework/src/Volo.Abp.AI.Abstractions/Volo/Abp/AI/IKernelAccessor.cs
+public interface IKernelAccessor
+{
+    Kernel? Kernel { get; }
+}
+```
+
+`IChatClient<TWorkspace>` and `IChatClientAccessor<TWorkspace>` resolve keyed services per workspace marker type, mirroring the `BlobContainer<T>` pattern. `[WorkspaceName("...")]` on the marker maps it to a configured workspace.
+
+When only one of `ChatClient`/`Kernel` is configured for a workspace the module builds the missing one on top of the existing service (a `Kernel` wraps the registered chat client, or a chat client is pulled out of the configured kernel), so callers can always resolve either accessor.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Distributed Locking" icon="lock" href="/framework/infra/distributed-locking" />
+</CardGroup>

@@ -1,0 +1,39 @@
+---
+title: "Client Simulation: Multi-Client Load Generator for ABP Apps"
+sidebarTitle: "Client Simulation"
+description: "Embedded multi-threaded load-simulation harness that drives configured Scenarios from a Razor Pages UI for soak testing."
+---
+
+The Client Simulation module is an in-process load generator. You register `Scenario`s in DI, declare how many `Client` instances should run them, and the module spins worker threads that walk each scenario's steps in a loop. A small Razor Pages UI lets operators start/stop the simulation and watch per-step latency. Source lives under `/home/daytona/repos/abpframework/abp/modules/client-simulation/src/`.
+
+## Packages
+
+| Package | Purpose |
+| --- | --- |
+| `Volo.ClientSimulation` | Core engine: `Simulation`, `Client`, `Scenario`, snapshots |
+| `Volo.ClientSimulation.Web` | Razor Pages UI (`/ClientSimulation`) and `SimulationArea` partial |
+
+## Core types
+
+- **`Simulation`** (`Volo.ClientSimulation/Simulation.cs`) — singleton coordinator holding the live `List<IClient>`, the current `SimulationState`, and the service scope for resolved scenarios. Reads `ClientSimulationOptions.Scenarios`.
+- **`ScenarioConfiguration`** — pairs a scenario type with a desired `ClientCount`; registered in `ConfigureServices` via `Configure<ClientSimulationOptions>(o => o.Scenarios.Add(new ScenarioConfiguration(typeof(MyScenario), 50)))`.
+- **`Scenario`** (`Scenarios/Scenario.cs`) — abstract base. Subclasses add ordered `ScenarioStep`s in their constructor. `CurrentStep` advances through `Steps[CurrentStepIndex]` per loop iteration.
+- **`ScenarioStep`** / **`SleepScenarioStep`** — a step is a unit of work (e.g. an HTTP call). `SleepScenarioStep` is a built-in step that pauses the client thread.
+- **`Client`** (`Clients/Client.cs`) — owns a `Thread`, drives the assigned `Scenario`, exposes a `Stopped` event and a `ClientState` enum (`Stopped`, `Running`, …).
+- **Snapshots** — `ClientSnapshot`, `ScenarioSnapshot`, `ScenarioStepSnapshot`, `ScenarioStepSummarySnapshot`, `ScenarioSummarySnapshot` provide read-only views for the UI.
+
+## Web UI
+
+`Volo.ClientSimulation.Web/Pages/ClientSimulation/Index.cshtml(.cs)` is the dashboard. `SimulationArea.cshtml` renders a live grid (refreshed via `SimulationArea.js`) showing each client's current step, success/failure counts and timings, backed by the snapshot types above. `Index.cshtml.cs` is intentionally minimal:
+
+```csharp
+public class IndexModel : PageModel
+{
+    public virtual Task<IActionResult> OnGetAsync()
+        => Task.FromResult<IActionResult>(Page());
+}
+```
+
+The page is meant for non-production environments — there is no built-in authorization beyond standard ABP page conventions, so wire it behind an admin policy when you mount it.
+
+See also: [/framework/background/background-workers](/framework/background/background-workers) for periodic in-process work, and [/modules/background-jobs](/modules/background-jobs) for durable async jobs.

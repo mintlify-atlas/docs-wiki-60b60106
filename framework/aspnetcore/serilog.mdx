@@ -1,0 +1,105 @@
+---
+title: "Serilog Enrichers: Correlation, Tenant, and User Context"
+sidebarTitle: "Serilog"
+description: "AbpSerilogMiddleware and the per-request enrichers that decorate Serilog log events with tenant id, user id, client id, and correlation id."
+---
+
+`Volo.Abp.AspNetCore.Serilog` is a single-middleware integration that decorates the Serilog `LogContext` on every HTTP request with ABP-specific request properties. The whole module is three small files in `framework/src/Volo.Abp.AspNetCore.Serilog/`.
+
+## AbpSerilogMiddleware
+
+`Volo/Abp/AspNetCore/Serilog/AbpSerilogMiddleware.cs` derives from `AbpMiddlewareBase` (shared with other ABP middleware in `Volo.Abp.AspNetCore`) and runs once per request:
+
+```csharp
+public async override Task InvokeAsync(HttpContext context, RequestDelegate next)
+{
+    var enrichers = new List<ILogEventEnricher>();
+
+    if (_currentTenant?.Id != null)
+        enrichers.Add(new PropertyEnricher(_options.EnricherPropertyNames.TenantId, _currentTenant.Id));
+
+    if (_currentUser?.Id != null)
+        enrichers.Add(new PropertyEnricher(_options.EnricherPropertyNames.UserId, _currentUser.Id));
+
+    if (_currentClient?.Id != null)
+        enrichers.Add(new PropertyEnricher(_options.EnricherPropertyNames.ClientId, _currentClient.Id));
+
+    var correlationId = _correlationIdProvider.Get();
+    if (!string.IsNullOrEmpty(correlationId))
+        enrichers.Add(new PropertyEnricher(_options.EnricherPropertyNames.CorrelationId, correlationId));
+
+    using (LogContext.Push(enrichers.ToArray()))
+    {
+        await next(context);
+    }
+}
+```
+
+`LogContext.Push(...)` is Serilog's ambient context — every log event written by any downstream middleware, controller, or background task spawned inside this scope automatically picks up the enricher properties.
+
+The middleware depends on `ICurrentTenant`, `ICurrentUser`, `ICurrentClient`, and `ICorrelationIdProvider`. The correlation id comes from `Volo.Abp.AspNetCore.Tracing.AbpCorrelationIdMiddleware` so the Serilog middleware must be registered *after* the correlation middleware in the pipeline.
+
+## Configuration: enricher property names
+
+`Volo/Abp/AspNetCore/Serilog/AbpAspNetCoreSerilogOptions.cs`:
+
+```csharp
+public class AbpAspNetCoreSerilogOptions
+{
+    public AllEnricherPropertyNames EnricherPropertyNames { get; } = new();
+
+    public class AllEnricherPropertyNames
+    {
+        public string TenantId      { get; set; } = "TenantId";
+        public string UserId        { get; set; } = "UserId";
+        public string ClientId      { get; set; } = "ClientId";
+        public string CorrelationId { get; set; } = "CorrelationId";
+    }
+}
+```
+
+Renaming a property lets a host align with an existing logging schema:
+
+```csharp
+Configure<AbpAspNetCoreSerilogOptions>(options =>
+{
+    options.EnricherPropertyNames.CorrelationId = "TraceId";
+});
+```
+
+## Registration
+
+`Microsoft/AspNetCore/Builder/AbpAspNetCoreSerilogApplicationBuilderExtensions.cs`:
+
+```csharp
+public static IApplicationBuilder UseAbpSerilogEnrichers(this IApplicationBuilder app)
+{
+    return app.UseMiddleware<AbpSerilogMiddleware>();
+}
+```
+
+Use it after correlation-id middleware and authentication so that all four enrichers have non-null values:
+
+```csharp
+app.UseCorrelationId();
+app.UseAuthentication();
+app.UseAbpSerilogEnrichers();
+app.UseAuthorization();
+```
+
+In a Serilog `appsettings.json` the properties appear as ordinary structured fields:
+
+```json
+{
+    "@t": "2024-...",
+    "@m": "GET /api/app/book responded 200",
+    "TenantId":      "0e9c3d2a-...",
+    "UserId":        "8b1ad9e9-...",
+    "ClientId":      "MyApi_Swagger",
+    "CorrelationId": "9c8c81e9-..."
+}
+```
+
+That makes per-tenant, per-correlation querying trivial in Seq, Elasticsearch, or Application Insights.
+
+The middleware does not configure Serilog itself — sinks, the minimum level, and output template are owned by the host's `LoggerConfiguration`. This module only adds the per-request context.

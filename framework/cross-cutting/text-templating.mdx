@@ -1,0 +1,151 @@
+---
+title: "Text templating with Razor and Scriban engines"
+sidebarTitle: "Text Templating"
+description: "ITemplateRenderer, TemplateDefinitionManager, and the two rendering engines ABP ships — Razor for HTML emails and Scriban for sandboxed strings."
+---
+
+`Volo.Abp.TextTemplating` is the engine-agnostic templating system used for emails, SMS bodies, notification messages, and PDF generators. Templates are declared once (a `TemplateDefinition`), their content comes from the virtual file system or an admin-managed store, and a culture-aware `ITemplateRenderer` picks the right rendering engine on each call. ABP ships two engines: Razor for HTML / markup output and Scriban for safer string-only output.
+
+## Module layout
+
+There are three packages under `framework/src/`:
+
+- **`Volo.Abp.TextTemplating.Core`** — engine-agnostic abstractions (`ITemplateRenderer`, `ITemplateDefinitionManager`, virtual-file content reading).
+- **`Volo.Abp.TextTemplating.Scriban`** — `ScribanTemplateRenderingEngine` and helpers.
+- **`Volo.Abp.TextTemplating.Razor`** — Razor compilation (`AbpRazorTemplateCSharpCompiler`) and integration.
+
+`Volo.Abp.TextTemplating` itself is an obsolete shim that depends on `AbpTextTemplatingScribanModule`:
+
+```csharp
+// framework/src/Volo.Abp.TextTemplating/Volo/Abp/TextTemplating/AbpTextTemplatingModule.cs
+[Obsolete("This module will be removed in the future. Please use AbpTextTemplatingScribanModule or AbpTextTemplatingRazorModule.")]
+[DependsOn(typeof(AbpTextTemplatingScribanModule))]
+public class AbpTextTemplatingModule : AbpModule { }
+```
+
+Depend on the engine module(s) you actually need.
+
+## `ITemplateRenderer` and `AbpTemplateRenderer`
+
+```csharp
+// Volo.Abp.TextTemplating.Core/Volo/Abp/TextTemplating/ITemplateRenderer.cs
+public interface ITemplateRenderer
+{
+    Task<string> RenderAsync(
+        string templateName,
+        object? model = null,
+        string? cultureName = null,
+        Dictionary<string, object>? globalContext = null);
+}
+```
+
+`AbpTemplateRenderer` (`AbpTemplateRenderer.cs`) routes by inspecting the `TemplateDefinition.RenderEngine` string:
+
+```csharp
+public virtual async Task<string> RenderAsync(string templateName, object? model = null,
+    string? cultureName = null, Dictionary<string, object>? globalContext = null)
+{
+    var templateDefinition = await TemplateDefinitionManager.GetAsync(templateName);
+    var renderEngine = templateDefinition.RenderEngine;
+    if (renderEngine.IsNullOrWhiteSpace()) renderEngine = Options.DefaultRenderingEngine;
+
+    var providerType = Options.RenderingEngines.GetOrDefault(renderEngine!);
+    if (providerType != null && typeof(ITemplateRenderingEngine).IsAssignableFrom(providerType))
+    {
+        using var scope = ServiceScopeFactory.CreateScope();
+        var engine = (ITemplateRenderingEngine)scope.ServiceProvider.GetRequiredService(providerType);
+        return await engine.RenderAsync(templateName, model, cultureName, globalContext);
+    }
+    throw new AbpException("There is no rendering engine found with template name: " + templateName);
+}
+```
+
+`AbpTextTemplatingOptions.RenderingEngines` is a `string → Type` map populated by each engine module (`"Scriban"` and `"Razor"`).
+
+`cultureName` is forwarded into the engine so templates can pull localised strings — Scriban's `ScribanTemplateLocalizer` and Razor's localised content reader both use `IStringLocalizerFactory` keyed by the requested culture. `globalContext` is a free-form bag for variables you want every template to see (logos, app name, hostnames) without polluting the model.
+
+## `TemplateDefinition` and the manager
+
+Each template is declared by a `TemplateDefinitionProvider`:
+
+```csharp
+public class BookStoreTemplates : TemplateDefinitionProvider
+{
+    public override void Define(ITemplateDefinitionContext context)
+    {
+        context.Add(new TemplateDefinition("Books.WelcomeEmail")
+            .WithScribanEngine()                         // ScribanTemplateDefinitionExtensions.cs
+            .WithVirtualFilePath("/Templates/Books/WelcomeEmail.tpl", isInlineLocalized: true));
+    }
+}
+```
+
+`TemplateDefinition` carries:
+
+- `Name` — referenced by renderers.
+- `LayoutName` / `Layout` — only for engines that support layouts (Razor).
+- `IsLayout` — distinguishes a layout template from a content one.
+- `Properties` — extension bag.
+- `RenderEngine` — set by helpers like `WithScribanEngine()` or `WithRazorEngine()`.
+- Localisation properties: `DefaultCultureName`, `IsInlineLocalized`.
+- Where content lives: `WithVirtualFilePath(...)` keeps content under `IVirtualFileProvider`.
+
+`ITemplateDefinitionManager` (`ITemplateDefinitionManager.cs`) merges static (`IStaticTemplateDefinitionStore`) and dynamic (`IDynamicTemplateDefinitionStore`) definitions exactly like the [settings](/framework/cross-cutting/settings) and [features](/framework/cross-cutting/features) systems do; admin UIs that need editable templates plug into the dynamic store.
+
+## Template content contributors
+
+Resolved templates ask `ITemplateContentProvider.GetContentOrNullAsync(...)` for the actual text. The provider walks `AbpTextTemplatingOptions.ContentContributors`. The default `VirtualFileTemplateContentContributor` (`VirtualFiles/VirtualFileTemplateContentContributor.cs`) reads the file from `IVirtualFileProvider`, picking the culture-suffixed copy (e.g. `WelcomeEmail.en.tpl`) when `IsInlineLocalized = false`.
+
+The localised reader pieces:
+
+| File | Purpose |
+| --- | --- |
+| `VirtualFiles/ILocalizedTemplateContentReader.cs` | Strategy for picking the right culture file. |
+| `VirtualFiles/VirtualFolderLocalizedTemplateContentReader.cs` | Looks at a sibling `Localization` folder. |
+| `VirtualFiles/FileInfoLocalizedTemplateContentReader.cs` | Loads a single template file with culture-tagged headers. |
+| `VirtualFiles/TemplateContentFileProvider.cs` | Bridge between virtual files and the templating system. |
+| `VirtualFiles/LocalizedTemplateContentReaderFactory.cs` | Picks the appropriate reader at runtime. |
+
+## Scriban engine
+
+`ScribanTemplateRenderingEngine` (`framework/src/Volo.Abp.TextTemplating.Scriban/Volo/Abp/TextTemplating/Scriban/ScribanTemplateRenderingEngine.cs`) compiles each template with `Scriban.Template.Parse`, populates a `Scriban.TemplateContext` with the supplied model and `globalContext`, wires `ScribanTemplateLocalizer` for localisation, and renders. Engine name: `ScribanTemplateRenderingEngine.EngineName` ("Scriban"). Use `template.WithScribanEngine()` to opt a definition in.
+
+Scriban is preferred for SMS / push notifications / plain-text emails because the syntax (`{{ name }}`) is mistake-resistant and the sandbox cannot reach into the host process.
+
+## Razor engine
+
+`AbpTextTemplatingRazorModule` registers `RazorTemplateRenderingEngine` along with the Roslyn-based compiler:
+
+- `AbpRazorTemplateCSharpCompiler` (`AbpRazorTemplateCSharpCompiler.cs`) — compiles a `.cshtml`-style template to an assembly via `Microsoft.AspNetCore.Razor.Language` + `CSharpCompilation`.
+- `DefaultAbpCompiledViewProvider` (`DefaultAbpCompiledViewProvider.cs`) caches compiled views by template key.
+- `AbpCompiledViewProviderOptions` exposes the cache directory and references list.
+- `DefaultAbpRazorProjectEngineFactory` builds the `RazorProjectEngine` used during compilation.
+- `EmptyProjectFileSystem` is the in-memory file system used so Razor doesn't need a real `wwwroot`.
+
+Razor is the right engine for HTML emails and admin notifications because it supports layouts, partials, and strongly-typed models.
+
+## `AbpTextTemplatingOptions`
+
+```csharp
+// AbpTextTemplatingOptions.cs
+public ITypeList<ITemplateDefinitionProvider> DefinitionProviders { get; }
+public ITypeList<ITemplateContentContributor> ContentContributors { get; }
+public IDictionary<string, Type> RenderingEngines { get; }     // engine name → engine type
+public string? DefaultRenderingEngine { get; set; }
+public HashSet<string> DeletedTemplates { get; }
+```
+
+The engine modules populate `RenderingEngines["Scriban"]` and `RenderingEngines["Razor"]`. Set `DefaultRenderingEngine = "Scriban"` if you do not want every definition to be explicit. `DeletedTemplates` strips templates declared by a dependency you don't need.
+
+## Practical recipes
+
+- **Localised template files.** Ship `WelcomeEmail.en.tpl` and `WelcomeEmail.tr.tpl` and let the `VirtualFolderLocalizedTemplateContentReader` pick by `cultureName`.
+- **Layouts in Razor.** `new TemplateDefinition("Layouts.Main") { IsLayout = true }` plus child templates `WithLayout("Layouts.Main")`.
+- **Sharing globals.** Pass a `Dictionary<string,object> { ["ProductName"] = "MyApp", ["BaseUrl"] = baseUrl }` into `RenderAsync` so every template can read `{{ ProductName }}` without modifying the model class.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Localization" href="/framework/cross-cutting/localization" />
+  <Card title="Virtual file system" href="/framework/cross-cutting/virtual-file-system" />
+</CardGroup>
