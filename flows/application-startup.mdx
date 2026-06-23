@@ -1,7 +1,7 @@
 ---
 title: "Application Startup: From Host Initialize to Module Hooks"
 sidebarTitle: "Application Startup"
-description: "Step-by-step trace of how an ABP application boots: factory, module loader, module manager, and the lifecycle contributor chain."
+description: "Step-by-step trace of how an ABP application boots: factory, module loader, module manager, and the lifecycle contributor chain that calls every module."
 ---
 
 ABP boots through a small set of well-defined hand-offs between the .NET generic host, the `AbpApplicationFactory`, the `IModuleLoader`, and the `IModuleManager`. Each module declares dependencies, contributes services, and listens for lifecycle phases via interfaces that are dispatched by named contributors. This page walks the entire startup graph the way the framework actually executes it so you can reason about ordering, scope boundaries, and where to plug your own logic.

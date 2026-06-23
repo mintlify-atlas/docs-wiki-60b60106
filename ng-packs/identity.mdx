@@ -40,7 +40,7 @@ There are intentionally only **two** smart components — `UsersComponent` and `
 1. The page shell from `@abp/ng.components/page`.
 2. An `<abp-extensible-table>` from `@abp/ng.components/extensible` driven by `defaults/` metadata.
 3. Inline create/edit dialogs rendered by `<abp-extensible-form>`.
-4. Row actions that open the [permission-management](/ng-packs/permission-management) modal or invoke proxy services for delete/lock/unlock.
+4. Row actions (defined in `defaults/default-users-entity-actions.ts` / `default-roles-entity-actions.ts`) — `Edit`, `Permissions` (opens the [permission-management](/ng-packs/permission-management) modal), and `Delete` — each guarded by an Identity policy.
 
 That is the whole pattern: define columns (`ePropList`), define form fields (`eFormPropList`), define row actions (`eActionList`), and the extensible components do the rest. Downstream apps add extra columns or actions via `ExtensionsService` without forking.
 
@@ -48,11 +48,11 @@ That is the whole pattern: define columns (`ePropList`), define form fields (`eF
 
 `packages/identity/proxy/` is the generated secondary entry point (`@abp/ng.identity/proxy`). It contains strongly-typed clients matching the Identity HTTP API:
 
-- `IdentityUserService` — `get`, `getList`, `create`, `update`, `delete`, `getRoles`, `getAssignableRoles`, `getAvailableOrganizationUnits`, `lock`/`unlock`, `setPassword`.
+- `IdentityUserService` — `get`, `getList`, `create`, `update`, `delete`, `getRoles`, `getAssignableRoles`, `updateRoles`, `findByEmail`, `findByUsername`.
 - `IdentityRoleService` — `get`, `getList`, `getAllList`, `create`, `update`, `delete`.
-- `OrganizationUnitService`, `IdentityClaimTypeService`, etc.
+- `IdentityUserLookupService` — lookup service used by `<abp-lookup-select>` to resolve user pickers.
 
-These are produced by running `ng g @abp/ng.schematics:proxy-add --module identity` (see [Schematics](/ng-packs/schematics-generators)). The runtime calls all flow through `RestService` in `@abp/ng.core`.
+Every generated method delegates to `RestService.request` from `@abp/ng.core` with `apiName: 'AbpIdentity'`. The files are produced by running `ng g @abp/ng.schematics:proxy-add --module identity` (see [Schematics](/ng-packs/schematics-generators)).
 
 ## Guards & resolvers
 

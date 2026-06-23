@@ -178,7 +178,7 @@ protected override async Task DoWorkAsync(PeriodicBackgroundWorkerContext worker
 Key invariants:
 
 - **Distributed lock**, default name `AbpBackgroundJobWorker`. Without an Redis/SqlServer distributed lock module, the in-memory implementation makes the lock local to the process — fine for a single instance but you'll process every job twice if you scale out.
-- **Pull, don't push.** `GetWaitingJobsAsync(applicationName, count)` is the only contract for the store — the EF Core/Mongo implementations return up to `MaxJobFetchCount` (default 1000) rows ordered by `Priority desc, NextTryTime asc`.
+- **Pull, don't push.** `GetWaitingJobsAsync(applicationName, count)` is the only contract for the store — the contract (documented on `IBackgroundJobStore`) is to return up to `MaxJobFetchCount` (default 1000) rows where `ApplicationName == applicationName && !IsAbandoned && NextTryTime <= Clock.Now`, ordered by `Priority DESC, TryCount ASC, NextTryTime ASC`.
 - **TryCount/LastTryTime updated before execution.** If the process crashes mid-execution the next poll sees the incremented count and uses the backoff schedule.
 - **Successful jobs are deleted, not marked.** Persistence is intentionally short-lived; if you need audit history of executed jobs, write your own log inside the job.
 - **`BackgroundJobExecutionException` is the retry signal.** Anything else escaping the executer marks the job `IsAbandoned`.

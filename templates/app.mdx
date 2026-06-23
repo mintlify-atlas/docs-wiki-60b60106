@@ -1,7 +1,7 @@
 ---
 title: "App Template: Layered DDD Solution and Project Matrix"
 sidebarTitle: "App"
-description: "The default `abp new` template — a layered DDD solution under templates/app/aspnet-core/src whose 23 projects are pruned to match the user's UI, database, and auth-server choices."
+description: "The default `abp new` template — a layered DDD solution under templates/app/aspnet-core/src whose 22 projects are pruned to match the user's UI, database, and auth-server choices."
 ---
 
 `templates/app/aspnet-core/` is the layered Domain-Driven Design starter that `abp new <name>` produces by default. The solution carries every project shape ABP supports — MVC, all flavours of Blazor, a separated AuthServer, both EF Core and MongoDB persistence — and the CLI's project-building pipeline deletes the projects you do not need based on the flags you pass. This page walks through every project under `src/` and which switch keeps or removes it.
@@ -20,7 +20,7 @@ description: "The default `abp new` template — a layered DDD solution under te
 
 The companion `templates/app/angular/` folder holds the Angular front-end consumed when `-u angular` is selected (see [Angular](/templates/angular)).
 
-## The 23 src/ projects
+## The 22 src/ projects
 
 ```text
 templates/app/aspnet-core/src/

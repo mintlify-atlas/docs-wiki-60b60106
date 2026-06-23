@@ -137,7 +137,7 @@ protected virtual async Task<TenantConfiguration?> FindTenantAsync(string tenant
 Two notable behaviours:
 
 - **The resolved value can be an id or a name.** `Guid.TryParse` chooses the lookup. Tenant names are normalized (default normalizer upper-cases) before hitting the store.
-- **Inactive tenants throw.** `IsActive == false` is treated identically to "not found" — clients get a `BusinessException` with code `Volo.AbpIo.MultiTenancy:010002`, which the exception middleware translates to HTTP 400.
+- **Inactive tenants throw.** `IsActive == false` is treated identically to "not found" — clients get a `BusinessException` with code `Volo.AbpIo.MultiTenancy:010002`. Because `BusinessException` carries no `HttpStatusCode`, the exception middleware falls through to the generic `IBusinessException → 403 Forbidden` rule (see [exception handling](/framework/core/exception-handling)) unless you map the code via `AbpExceptionHttpStatusCodeOptions`.
 
 `ITenantResolveResultAccessor.Result` exposes the resolver chain trace for downstream code (the middleware uses it to detect query-string wins).
 

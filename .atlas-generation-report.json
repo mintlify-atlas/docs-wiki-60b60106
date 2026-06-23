@@ -1,5 +1,6 @@
 {
-  "phase": "generation",
+  "phase": "review",
+  "previousPhase": "generation",
   "shardsCompleted": 9,
   "pagesWritten": 169,
   "navigation": {
@@ -14,23 +15,57 @@
   "brokenLinks": {
     "command": "mint broken-links",
     "status": "passed",
-    "initialIssues": 29,
-    "filesAffected": 12,
-    "remediation": "Rewrote 16 stale slug patterns (e.g. /framework/fundamentals/* -> /framework/cross-cutting/*, /framework/infrastructure/* -> /framework/background/* and /framework/blob-storing/overview, /framework/messaging/* -> /framework/event-bus/*, /framework/data/repositories -> /framework/ddd/repositories, /framework/ui/theming -> /framework/ui-mvc/themes, /framework/web/aspnet-core/middlewares -> /framework/aspnetcore/overview, /framework/aspnetcore/navigation-menu -> /framework/ui-mvc/navigation, /framework/ui-mvc/bundling -> /framework/aspnetcore/bundling, /framework/background-services/* -> /framework/background/* and /framework/infra/distributed-locking, /framework/http/static-client-proxies -> /framework/http/static-client-proxy, /framework/http/dynamic-client-proxies -> /framework/http/dynamic-client-proxy) across all referencing pages.",
     "finalStatus": "no broken links found"
   },
-  "childWarnings": [
-    "Some deep pages slightly over their soft line band (aspects-and-interceptors 296L, exception-handling 270L) because tables/code excerpts would have been mutilated by trimming further.",
-    "A few brief pages are 5-30L over their 80L target where the topic genuinely needed a full API table (e.g. global-features, dapper, memory-db, timing).",
-    "caching.mdx is 173L vs deep 180L soft floor; content is dense (Mermaid + Redis provider + key normalization tables).",
-    "framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Repositories/BulkOperations/ does not exist in the repo; documented bulk APIs on the repository interfaces themselves instead.",
-    "AbpHttpExceptionStatusCodes constant class does not exist; documented AbpExceptionHttpStatusCodeOptions and AbpExceptionHandlingConsts plus DefaultHttpExceptionStatusCodeFinder mapping.",
-    "Some pages in the deep tier (cli-overview, templates/app) come in slightly under the 180L floor by line count but meet semantic depth via large tables and command/project enumerations.",
-    "No ng-add schematic exists in npm/ng-packs/packages/schematics; ng-packs/schematics-generators.mdx clarifies that workspaces are scaffolded by `abp new`, not by an ng-add schematic.",
-    "An undocumented RecreateInitialMigrationCommand exists in the CLI Commands folder; intentionally omitted from the public command table to match the planned reference surface."
-  ],
-  "pendingReview": [
-    "Optional: split aspects-and-interceptors / exception-handling if a hard line cap is desired.",
-    "Optional: cross-link audit between flows/* and the deeper subsystem pages they trace."
+  "review": {
+    "auditShards": 8,
+    "pagesAudited": 79,
+    "fixesApplied": [
+      "overview/architecture.mdx: corrected interceptor names (FeatureInterceptor, ChangeTrackingInterceptor), removed nonexistent MultiTenancySideInterceptor; fixed description length.",
+      "framework/ddd/entities-and-aggregates.mdx: corrected FullAuditedAggregateRootWithUser file path; removed inaccurate '14 base classes' count.",
+      "framework/ddd/application-services.mdx: corrected DTO count (27 vs 28).",
+      "framework/cross-cutting/caching.mdx: corrected DistributedCacheKeyNormalizer registration (Transient, not singleton); fixed IDistributedCache.cs file description; tightened title.",
+      "framework/cross-cutting/authorization.mdx: rewrote AuthorizationInterceptorRegistrar.ShouldIntercept rule to match source.",
+      "framework/cross-cutting/auditing.mdx, framework/data/entity-framework-core.mdx, framework/data/data-seeding-and-filtering.mdx, framework/multi-tenancy/overview.mdx, framework/multi-tenancy/tenant-resolution.mdx: title/description tuned to fit 50-60 / 130-155 bands.",
+      "framework/aspnetcore/mvc.mdx, framework/aspnetcore/overview.mdx: description length tuned.",
+      "flows/application-startup.mdx: description extended to >=130 chars.",
+      "flows/unit-of-work-lifecycle.mdx, flows/audit-log-pipeline.mdx: titles extended to 50-60.",
+      "framework/event-bus/overview.mdx: replaced 'precompiled delegates' overstatement with IEventHandlerMethodExecutor description.",
+      "framework/background/background-jobs.mdx: corrected IMultiTenantBackgroundJobArgs -> IMultiTenant; added IExceptionNotifier + BackgroundJobExecutionException detail.",
+      "flows/distributed-event-publish.mdx: fixed stray daytona/repos/ in OutboxSender URL; corrected RebusEventBus -> RebusDistributedEventBus.",
+      "flows/background-job-execution.mdx: completed waiting-job ordering contract (Priority DESC, TryCount ASC, NextTryTime ASC) and added !IsAbandoned predicate.",
+      "flows/dynamic-client-proxy-call.mdx: corrected ApiDescriptionCache description (in-memory dictionary + SemaphoreSlim, not IDistributedCache); fixed AbpHttpClientModule wiring claim.",
+      "modules/identity.mdx: IdentityRole corrected from FullAuditedAggregateRoot<Guid> to AggregateRoot<Guid>, IMultiTenant, IHasEntityVersion.",
+      "modules/account.mdx: removed nonexistent SendSecurityCode/VerifySecurityCode pages; corrected setting names (Abp.Account.* prefix); removed unsupported lockout/2FA toggles claim.",
+      "modules/permission-management.mdx: removed bogus 'T' provider claim; clarified provider-name constants U/R/C come from framework.",
+      "modules/feature-management.mdx: corrected source of TenantFeatureManagementProvider (ships in Volo.Abp.FeatureManagement.Domain, not Tenant Management module).",
+      "tooling/cli-commands.mdx: added missing internal RecreateInitialMigrationCommand row with [HideFromCommandList] note.",
+      "templates/app.mdx, templates/overview.mdx: corrected project count from 23 to 22.",
+      "ng-packs/overview.mdx: clarified lerna version pin.",
+      "ng-packs/identity.mdx: corrected IdentityUserService/IdentityRoleService method lists; removed nonexistent OrganizationUnitService/IdentityClaimTypeService references.",
+      "ng-packs/components.mdx: disambiguated Chart.js npm dep from MVC-side @abp/chart.js pack.",
+      "npm-packs/overview.mdx: corrected pack count from 'about fifty' to exact 54.",
+      "npm-packs/vendor-libraries.mdx: corrected tui-editor and qrcode 'Vendor (npm)' cells (both ship pre-built assets in src/).",
+      "npm-packs/core-and-utils.mdx: fixed abp.js section line offsets (857->859, 872->874)."
+    ],
+    "auditAreasVerifiedClean": [
+      "Core runtime (AbpApplicationBase, ModuleLoader, ServiceConfigurationContext, IObjectAccessor, IConventionalRegistrar)",
+      "DDD entities/aggregates/repositories/application-services symbols and base-class lattice",
+      "Unit of Work lifecycle (UnitOfWorkInterceptor, UnitOfWorkManager.Begin, AmbientUnitOfWork)",
+      "EF Core integration (AbpDbContext, global filters, distributed events, 7 provider modules)",
+      "Authorization pipeline (AuthorizationInterceptor, MethodInvocationAuthorizationService, AbpAuthorizationPolicyProvider, PermissionChecker)",
+      "Auditing pipeline (AuditingManager, AuditingHelper, AuditingInterceptor, AbpAuditActionFilter, AbpAuditingMiddleware)",
+      "Event bus (LocalEventBus, DistributedEventBus, UnitOfWorkEventPublisher, Outbox/Inbox, RabbitMQ/Kafka/Azure/Dapr/Rebus)",
+      "Background jobs/workers (BackgroundJobManager, BackgroundJobWorker, AsyncPeriodicBackgroundWorkerBase) — Quartz/RabbitMQ/TickerQ provider modules",
+      "BLOB storing (all 8 providers — Aliyun/Aws/Azure/Bunny/FileSystem/Google/Memory/Minio)",
+      "HTTP dynamic client proxy (DynamicHttpProxyInterceptor, ClientProxyBase.RequestAsync, ApiDescriptionCache, IdentityModelAuthenticationService token cache)",
+      "Multi-tenancy (ICurrentTenant, TenantResolver, 8 ITenantResolveContributor implementations including obsolete FormTenantResolveContributor)",
+      "Pre-built modules (Identity/Account/OpenIddict/Permission/Feature/Setting/Tenant/Audit/Background/CMS Kit)",
+      "Reference enumerations: cli-commands (all + RecreateInitialMigrationCommand), source-code (all 18 SourceCode projects), build/scripts (build+deploy+tools .ps1), build/github-workflows (all 13 .yml), npm-packs/vendor-libraries (all 54 directories), blob-storing/providers (all 8 providers)"
+    ]
+  },
+  "outstandingNotes": [
+    "framework/cross-cutting/caching.mdx is 173 lines (deep target floor 180); content density is high — Redis provider, hybrid cache, tenant-prefixed key layout, UoW staging. Padding would dilute, so left as-is.",
+    "framework/core/aspects-and-interceptors.mdx and exception-handling.mdx remain slightly above their original standard band (296L/270L); accuracy verified; trimming would mutilate tables/code excerpts."
   ]
 }

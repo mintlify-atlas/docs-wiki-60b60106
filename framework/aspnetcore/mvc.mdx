@@ -1,7 +1,7 @@
 ---
 title: "MVC: Conventional Controllers, Filters, and App Config"
 sidebarTitle: "MVC"
-description: "Deep dive into Volo.Abp.AspNetCore.Mvc: AppService→Controller conventions, filter pipeline, model binding, content formatters, and the application-configuration endpoint."
+description: "Volo.Abp.AspNetCore.Mvc deep dive: AppService→Controller conventions, the filter pipeline, model binding, and the application-configuration endpoint."
 ---
 
 `Volo.Abp.AspNetCore.Mvc` is the largest single integration in the framework and the one almost every ABP host loads. It does three jobs that are easy to conflate. First, it turns plain `IApplicationService` interfaces into real ASP.NET Core controllers without writing a controller class — the *conventional controller* feature. Second, it installs an opinionated cross-cutting filter pipeline (auditing, exception handling, validation, unit-of-work, content negotiation, model binding) that makes those controllers behave consistently. Third, it exposes a single, machine-readable endpoint — `/api/abp/application-configuration` — that browser clients (Angular, MVC, Blazor WebAssembly) hit on startup to learn about features, permissions, settings, localization, and current user.

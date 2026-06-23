@@ -24,7 +24,7 @@ npm/ng-packs/
 └── package.json          # workspace scripts (yarn-based)
 ```
 
-`nx.json` declares `workspaceLayout: { libsDir: "packages", appsDir: "" }` and sets `dev-app` as the default project. Lerna versions out of `packages/*` (`lerna.version.json`) but publishes the built output from `dist/packages/*` (`lerna.publish.json`).
+`nx.json` declares `workspaceLayout: { libsDir: "packages", appsDir: "" }` and sets `dev-app` as the default project. Lerna versions packages out of `packages/*` (`lerna.version.json`, currently pinned at `7.2.3`) but publishes the built output from `dist/packages/*` (`lerna.publish.json`).
 
 ## Build & test scripts
 

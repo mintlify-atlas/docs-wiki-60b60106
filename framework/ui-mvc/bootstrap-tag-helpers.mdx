@@ -4,7 +4,7 @@ sidebarTitle: "Tag Helpers"
 description: "Complete reference of Volo.Abp.AspNetCore.Mvc.UI.Bootstrap tag helpers grouped by category, with target elements and source paths."
 ---
 
-`Volo.Abp.AspNetCore.Mvc.UI.Bootstrap` wraps Bootstrap 5 markup behind Razor tag helpers so layouts stay declarative. Every helper is a normal `Microsoft.AspNetCore.Razor.TagHelpers.TagHelper` paired with an injectable `IAbpTagHelperService<T>` that does the rendering — the split is what makes them testable and DI-friendly. The base classes (`AbpTagHelper`, `AbpTagHelperService`, `IAbpTagHelperLocalizer`) live at the root of `framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bootstrap/TagHelpers/`.
+`Volo.Abp.AspNetCore.Mvc.UI.Bootstrap` wraps Bootstrap 5 markup behind Razor tag helpers so layouts stay declarative. Every helper is a normal `Microsoft.AspNetCore.Razor.TagHelpers.TagHelper` paired with an injectable `IAbpTagHelperService<TTagHelper>` that does the rendering — the split is what makes them testable and DI-friendly. The base classes (`AbpTagHelper`, `AbpTagHelperService`, `IAbpTagHelperLocalizer`, `AbpTagHelperLocalizer`) live at the root of `framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bootstrap/TagHelpers/`.
 
 This page enumerates the tag helper categories shipped by the package. Each row is grounded in a real `*TagHelper.cs` source file under `framework/src/Volo.Abp.AspNetCore.Mvc.UI.Bootstrap/TagHelpers/<Category>/`.
 
@@ -46,7 +46,7 @@ The `TagHelpers/Form/DatePicker/` subfolder ships the `<abp-input type="date">` 
 | `AbpModalBodyTagHelper` | `<abp-modal-body>` | `.modal-body`. |
 | `AbpModalFooterTagHelper` | `<abp-modal-footer>` | `.modal-footer` with `buttons` collection (`AbpModalButtons`) and `align` (`ButtonsAlign`). |
 
-`AbpModalSizeExtensions.cs` maps the enum (`Default`, `Small`, `Large`, `ExtraLarge`) to Bootstrap class suffixes.
+`AbpModalSizeExtensions.cs` maps the `AbpModalSize` enum (`Default`, `Small`, `Large`, `ExtraLarge`, plus the `Fullscreen*` breakpoints) to Bootstrap class suffixes.
 
 ## Alert
 
@@ -54,8 +54,8 @@ The `TagHelpers/Form/DatePicker/` subfolder ships the `<abp-input type="date">` 
 
 | Tag helper | Element | Description |
 | --- | --- | --- |
-| `AbpAlertTagHelper` | `<abp-alert>` | `.alert.alert-{type}` (`AlertType`). Supports `dismissible`. |
-| `AbpAlertHeaderTagHelper` | `<h1..h6>` inside `<abp-alert>` | Auto-applies `.alert-heading`. |
+| `AbpAlertTagHelper` | `<abp-alert>` | `.alert.alert-{type}` (`AlertType` from `Volo.Abp.AspNetCore.Mvc.UI.Alerts`). Supports `dismissible`. |
+| `AbpAlertHeaderTagHelper` | `<h1>` … `<h6>` inside `<abp-alert>` | Auto-applies `.alert-heading`. |
 | `AbpAlertLinkTagHelper` | `<a abp-alert-link>` | Auto-applies `.alert-link`. |
 
 ## Card
@@ -127,7 +127,7 @@ The `TagHelpers/Form/DatePicker/` subfolder ships the `<abp-input type="date">` 
 
 | Tag helper | Element | Description |
 | --- | --- | --- |
-| `AbpPaginationTagHelper` | `<abp-paginator>` | Renders Bootstrap `.pagination` from a `PagerModel` (`current-page`, `page-size`, `total-count`, `show-info`). |
+| `AbpPaginationTagHelper` | `<abp-paginator>` | Renders Bootstrap `.pagination` from a `PagerModel` passed via the `model` attribute. Toggle the result-count summary with `show-info`. |
 
 ## Toolbar (button toolbar + table toolbar)
 
@@ -139,8 +139,8 @@ The page-level "toolbar" abstraction (top toolbar, page toolbar) lives in `Volo.
 
 | Tag helper | Element | Description |
 | --- | --- | --- |
-| `AbpProgressGroupTagHelper` | `<abp-progress-group>` | `.progress` wrapper. |
-| `AbpProgressBarTagHelper` | `<abp-progress-bar>` / `<abp-progress-part>` | `.progress-bar` with `Value`, `MaxValue`, `Striped`, `Animated`, `Type`. The same component handles standalone bars and segments of a stacked bar. |
+| `AbpProgressGroupTagHelper` | `<abp-progress-group>` | `.progress` wrapper that hosts one or more `<abp-progress-part>` segments. |
+| `AbpProgressBarTagHelper` | `<abp-progress-bar>` / `<abp-progress-part>` | `.progress-bar` with `Value`, `MinValue`, `MaxValue`, `Strip`, `Animation`, `Type` (`AbpProgressBarType`). The same component handles standalone bars and segments of a stacked bar. |
 
 ## Table
 
@@ -148,21 +148,21 @@ The page-level "toolbar" abstraction (top toolbar, page toolbar) lives in `Volo.
 
 | Tag helper | Element | Description |
 | --- | --- | --- |
-| `AbpTableTagHelper` | `<abp-table>` | `.table` with `striped-rows`, `hover-effect`, `borderless`, `responsive`, `size` (`AbpTableSize`). |
-| `AbpTableHeaderTagHelper` | `<thead>` inside `<abp-table>` | Applies `.table-{variant}` head styling. |
-| `AbpTableHeadScopeTagHelper` | `<th>` | Sets `scope="col"` automatically. |
-| `AbpTableStyleTagHelper` | `<tr>` / `<td>` | Applies row-/cell-level Bootstrap state classes. |
+| `AbpTableTagHelper` | `<abp-table>` | `.table` with `striped-rows`, `hoverable-rows`, `small`, `dark-theme`, `border-style` (`AbpTableBorderStyle`) and `responsive` / `responsive-{sm,md,lg,xl}` breakpoints. |
+| `AbpTableHeaderTagHelper` | `<thead>` inside `<abp-table>` | Applies `.table-{theme}` head styling driven by `AbpTableHeaderTheme`. |
+| `AbpTableHeadScopeTagHelper` | `<th>` | Sets `scope="col"`/`scope="row"` from `AbpThScope`. |
+| `AbpTableStyleTagHelper` | `<tr>` / `<td>` / `<th>` | Applies row-/cell-level Bootstrap state classes via `AbpTableStyle`. |
 
 ## Other categories
 
 These categories are also shipped — useful when composing layouts even though not in the brief above:
 
-`TagHelpers/Badge/` → `<abp-badge>`; `TagHelpers/Blockquote/` → `<abp-blockquote>`, `<abp-blockquote-paragraph>`, `<abp-blockquote-footer>`; `TagHelpers/Border/` → `<abp-border>`, `<abp-rounded>`; `TagHelpers/Carousel/` → `<abp-carousel>`, `<abp-carousel-item>`; `TagHelpers/Collapse/` → `<abp-collapse-body>`, `<abp-collapse-button>`, `<abp-accordion>`, `<abp-accordion-item>`; `TagHelpers/Figure/` → `<abp-figure>`, `<abp-figure-image>`, `<abp-figure-caption>`; `TagHelpers/ListGroup/` → `<abp-list-group>`, `<abp-list-group-item>`; `TagHelpers/Nav/` → `<abp-nav>`, `<abp-nav-bar>`, `<abp-nav-item>`, plus `[abp-nav-link]`, `[abp-navbar-brand]`, `<abp-navbar-nav>`, `<span abp-navbar-text>`, `<abp-navbar-toggle>`; `TagHelpers/Popover/` → `<abp-popover>`; `TagHelpers/Tooltip/` → `<abp-tooltip>`.
+`TagHelpers/Badge/` → `<abp-badge>` (`AbpBadgeType`); `TagHelpers/Blockquote/` → `<abp-blockquote>`, `<abp-blockquote-paragraph>`, `<abp-blockquote-footer>`; `TagHelpers/Border/` → `<abp-border>` (`AbpBorderType`), `<abp-rounded>` (`AbpRoundedType`); `TagHelpers/Carousel/` → `<abp-carousel>`, `<abp-carousel-item>`; `TagHelpers/Collapse/` → `<abp-collapse-body>`, `<abp-collapse-button>`, `<abp-accordion>`, `<abp-accordion-item>`; `TagHelpers/Figure/` → `<abp-figure>`, `<abp-figure-image>`, `<abp-figure-caption>`; `TagHelpers/ListGroup/` → `<abp-list-group>`, `<abp-list-group-item>`; `TagHelpers/Nav/` → `<abp-nav>`, `<abp-nav-bar>`, `<abp-nav-item>`, `<abp-nav-link>`, `<abp-navbar-brand>`, `<abp-navbar-nav>`; `TagHelpers/Popover/` → `<abp-popover>` (`PopoverDirectory`); `TagHelpers/Tooltip/` → `<abp-tooltip>` (`TooltipDirectory`); `TagHelpers/Utils/` → `<abp-if>` and the `[abp-auto-focus]` attribute helper; `TagHelpers/Extensions/` ships internal `ModelExplorer` / `TagHelperOutput` helpers used by the categories above.
 
 ## Implementation notes
 
-- Every helper has a sibling `*TagHelperService.cs` that contains the rendering logic. The DI split is what lets a host override behaviour: register a derived service via `Configure<MvcOptions>` and the tag helper picks it up automatically.
-- The shared `IAbpTagHelperLocalizer` (`AbpTagHelperLocalizer.cs`) is what resolves the display name from `ModelExpression` metadata — set localization on your DTO with `[DisplayName(...)]` or via a Localization Resource and every form helper picks it up.
-- Enums like `FontIconType`, `HtmlHeadingType`, `AbpCardImagePosition`, `AbpModalSize`, `AbpFormControlSize`, and `AbpCardBackgroundType` are the central styling vocabulary — `*Extensions.cs` companions convert them to Bootstrap class names.
+- Every helper has a sibling `*TagHelperService.cs` that contains the rendering logic. The DI split is what lets a host override behaviour: register a derived service in `ConfigureServices` and the tag helper resolves it through DI automatically.
+- The shared `IAbpTagHelperLocalizer` (default impl `AbpTagHelperLocalizer.cs`) resolves the display name from `ModelExpression` metadata — set localization on your DTO with `[DisplayName(...)]`/`[Display]` attributes or via a Localization Resource and every form helper picks it up.
+- Enums like `AbpCardImagePosition`, `AbpModalSize`, `AbpFormControlSize`, `AbpCardBackgroundType`, `AbpTableBorderStyle` and `AbpButtonSize` are the central styling vocabulary — `*Extensions.cs` companions convert them to Bootstrap class names.
 
 For how these helpers are composed into themes, see [Themes](/framework/ui-mvc/themes); for the unrelated *script/style* tag helpers that load assets, see [Bundling](/framework/aspnetcore/bundling).

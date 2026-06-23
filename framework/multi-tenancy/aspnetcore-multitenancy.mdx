@@ -73,7 +73,7 @@ Configure<AbpAspNetCoreMultiTenancyOptions>(options =>
 
 ## Cookie helper
 
-`AbpMultiTenancyCookieHelper` (same folder) centralises read/write of the tenant cookie so the middleware, the tenant switch endpoint and the OpenIdConnect handler agree on the cookie name, path (`/`) and `SameSite` mode.
+`AbpMultiTenancyCookieHelper.SetTenantCookie(context, tenantId, tenantKey)` (same folder) centralises writes of the tenant cookie. It appends a non-`HttpOnly`, essential cookie scoped to `Path = "/"` with a 10-year expiry, and deletes the cookie when `tenantId` is `null`. The middleware, the tenant switch endpoint and the OpenIdConnect handler all go through this helper so the cookie name and shape stay in sync.
 
 ## TenantResolveContextExtensions
 
@@ -83,9 +83,9 @@ Configure<AbpAspNetCoreMultiTenancyOptions>(options =>
 
 The companion package `Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy` ships:
 
-- **`AbpTenantAppService`** (`framework/src/Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy/Pages/Abp/MultiTenancy/AbpTenantAppService.cs`) — exposes `FindTenantByNameAsync` / `FindTenantByIdAsync` over `ITenantStore` + `ITenantNormalizer`. Auto-controllered as `/api/multi-tenancy/tenants/...`.
-- **`AbpTenantController`** — thin MVC wrapper around the app service so non-proxy callers can `POST /Abp/MultiTenancy/Switch` with `tenantId` to update the cookie and reload.
-- **`TenantSwitchModal.cshtml`** — Bootstrap modal rendered by `<abp-current-tenant />`/`<abp-tenant-switch-link />` in shared layouts, letting users pick a tenant by name. The modal calls `FindTenantByNameAsync`, then posts the chosen tenant id to the controller which sets the `__tenant` cookie.
+- **`AbpTenantAppService`** (`framework/src/Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy/Pages/Abp/MultiTenancy/AbpTenantAppService.cs`) — implements `IAbpTenantAppService.FindTenantByNameAsync` / `FindTenantByIdAsync` against `ITenantStore` + `ITenantNormalizer`.
+- **`AbpTenantController`** (`Pages/Abp/MultiTenancy/AbpTenantController.cs`) — `[Area("abp")] [Route("api/abp/multi-tenancy")]`, exposes the two `GET /tenants/by-name/{name}` and `GET /tenants/by-id/{id}` endpoints.
+- **`TenantSwitchModal.cshtml(.cs)`** — a Razor Page at `/Abp/MultiTenancy/TenantSwitchModal` that renders a Bootstrap modal letting users type a tenant name. The `OnPostAsync` handler resolves the name through `ITenantStore` / `ITenantNormalizer`, then writes the `__tenant` cookie via `AbpMultiTenancyCookieHelper.SetTenantCookie(...)`. The bundled `tenant-switch.js` is wired to `#AbpTenantSwitchLink` in a layout: it opens the modal and reloads the page so the next request flows through `CookieTenantResolveContributor`.
 
 Add the module to your web project:
 

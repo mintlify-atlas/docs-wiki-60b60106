@@ -51,7 +51,7 @@ Companion types in the same folder:
 | `ConfigurationFeatureManagementProvider` | `"C"` | `IConfiguration` (`appsettings.json`) |
 | `EditionFeatureManagementProvider` | `"E"` | `FeatureValue` rows keyed by edition id |
 
-The Tenant Management module adds a tenant (`"T"`) provider on top. `FeatureManagementOptions.Providers` lists the resolution order — first one to return a non-null wins.
+A fourth provider, `TenantFeatureManagementProvider` (provider name `"T"`), ships alongside the others and is used by the tenant-aware admin UI. `FeatureManagementOptions.Providers` lists the resolution order — first one to return a non-null wins.
 
 ## `IFeatureManager`
 
@@ -77,6 +77,6 @@ The `*WithProvider` variants return which provider answered (useful when the man
 
 ## Related
 
-- [Tenant Management](/modules/tenant-management) — adds the tenant ("T") provider.
+- [Tenant Management](/modules/tenant-management) — the source of tenant ids used by the `"T"` provider.
 - [Permission Management](/modules/permission-management) — sibling module, same value-provider pattern.
 - [Setting Management](/modules/setting-management) — sibling for user/tenant/global settings.

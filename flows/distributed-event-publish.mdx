@@ -172,7 +172,7 @@ public async Task StartAsync(CancellationToken cancellationToken = default)
 }
 ```
 
-Each [`OutboxSender`](https://github.com/daytona/repos/abpframework/abp/blob/dev/framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Distributed/OutboxSender.cs) sets up an `AbpAsyncTimer` driven by `AbpEventBusBoxesOptions.PeriodTimeSpan` (defaults to 2 seconds) and runs the poll loop on `Elapsed`:
+Each [`OutboxSender`](https://github.com/abpframework/abp/blob/dev/framework/src/Volo.Abp.EventBus/Volo/Abp/EventBus/Distributed/OutboxSender.cs) sets up an `AbpAsyncTimer` driven by `AbpEventBusBoxesOptions.PeriodTimeSpan` (defaults to 2 seconds) and runs the poll loop on `Elapsed`:
 
 ```csharp
 protected virtual async Task RunAsync()
@@ -236,7 +236,7 @@ The concrete `PublishFromOutboxAsync`/`PublishManyFromOutboxAsync` is implemente
 | RabbitMQ | `Volo.Abp.EventBus.RabbitMQ` | Publishes to the configured exchange; `PublishMany` uses a transactional channel batch when supported. |
 | Kafka | `Volo.Abp.EventBus.Kafka` | Sends to the configured topic with the event name as the key. |
 | Azure Service Bus | `Volo.Abp.EventBus.Azure` | Uses `ServiceBusSender.SendMessagesAsync` for batches. |
-| RebusEventBus | `Volo.Abp.EventBus.Rebus` | Defers to Rebus's transport. |
+| Rebus | `Volo.Abp.EventBus.Rebus` | `RebusDistributedEventBus` defers to Rebus's configured transport. |
 | Local | `LocalDistributedEventBus` | In-process; used in tests and single-process apps. |
 
 Failure semantics: if the broker call throws, `DeleteAsync` is **not** called, so the row stays in the outbox and will be retried on the next tick. This gives at-least-once delivery.

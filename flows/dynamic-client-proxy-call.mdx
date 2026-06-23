@@ -4,7 +4,7 @@ sidebarTitle: "Client Proxy Call"
 description: "How an IAppService call becomes an authenticated HttpRequestMessage in ABP — interceptor, ApiDescription, payload builder, token, error mapping."
 ---
 
-ABP lets a client project consume a remote application service through its **interface** (`IUserAppService`) without any handwritten controller-shaped DTO copies. At startup, `AbpHttpClientModule` registers a dynamic proxy backed by `DynamicHttpProxyInterceptor<TService>`; at call time, the interceptor discovers the matching server action via `IApiDescriptionFinder`, the URL/payload are built by `ClientProxyUrlBuilder`/`ClientProxyRequestPayloadBuilder`, a bearer token is added by an `IRemoteServiceHttpClientAuthenticator` (driven by `IdentityModelAuthenticationService` for IdentityModel-based clients), `HttpClient.SendAsync` runs, and any non-success response is mapped to `AbpRemoteCallException` with `RemoteServiceErrorInfo`. This page traces every step end-to-end.
+ABP lets a client project consume a remote application service through its **interface** (`IUserAppService`) without any handwritten controller-shaped DTO copies. At startup, the consuming module calls `services.AddHttpClientProxies(typeof(...).Assembly)` (from `ServiceCollectionHttpClientProxyExtensions`) to register, for every `IRemoteService`-tagged interface, a Castle `IInterceptor` that targets `DynamicHttpProxyInterceptor<TService>`; at call time, the interceptor discovers the matching server action via `IApiDescriptionFinder`, the URL/payload are built by `ClientProxyUrlBuilder`/`ClientProxyRequestPayloadBuilder`, a bearer token is added by an `IRemoteServiceHttpClientAuthenticator` (driven by `IdentityModelAuthenticationService` for IdentityModel-based clients), `HttpClient.SendAsync` runs, and any non-success response is mapped to `AbpRemoteCallException` with `RemoteServiceErrorInfo`. This page traces every step end-to-end.
 
 Companion pages: [Dynamic C# API Clients](/framework/http/dynamic-client-proxy), [Static Client Proxies](/framework/http/static-client-proxy), [Application Startup](/flows/application-startup).
 
@@ -108,7 +108,7 @@ public override async Task InterceptAsync(IAbpMethodInvocation invocation)
 
 ## Step 3 — `IApiDescriptionFinder` discovery
 
-`ApiDescriptionFinder` calls the server's `/api/abp/api-definition` endpoint (camel-cased JSON) **once per `baseUrl`** and caches the result in `IApiDescriptionCache` (an `IDistributedCache`-style cache wrapper). It then walks `Modules → Controllers → Actions` looking for the controller that implements `serviceType` and an action whose name and parameter type list match the invoked method:
+`ApiDescriptionFinder` calls the server's `/api/abp/api-definition` endpoint **once per `baseUrl`** and caches the result in `IApiDescriptionCache` — `ApiDescriptionCache` is a singleton with an in-process `Dictionary<string, ApplicationApiDescriptionModel>` guarded by a `SemaphoreSlim`. It then walks `Modules → Controllers → Actions` looking for the controller that implements `serviceType` and an action whose name and parameter type list match the invoked method:
 
 ```csharp
 // ApiDescriptionFinder.cs

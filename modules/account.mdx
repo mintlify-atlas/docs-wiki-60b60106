@@ -48,7 +48,7 @@ Other operations:
 
 - `SendPasswordResetCodeAsync` → `IAccountEmailer.SendPasswordResetLinkAsync`.
 - `VerifyPasswordResetTokenAsync` / `ResetPasswordAsync` → `UserManager.VerifyUserTokenAsync` and `ResetPasswordAsync`.
-- `CheckSelfRegistrationAsync` honors the `Account.IsSelfRegistrationEnabled` setting.
+- `CheckSelfRegistrationAsync` honors the `Abp.Account.IsSelfRegistrationEnabled` setting.
 
 ### `ProfileAppService` (`ProfileAppService.cs`)
 
@@ -68,11 +68,11 @@ Single endpoint, `RefreshAsync`, that clears the user's entry in `IdentityDynami
 
 ## Settings
 
-`Settings/AccountSettingDefinitionProvider.cs` registers Account-specific settings such as `Account.IsSelfRegistrationEnabled`, `Account.EnableLocalLogin`, and lockout / two-factor toggles. They are read at runtime via `ISettingProvider` and configurable per tenant through [Setting Management](/modules/setting-management).
+`Settings/AccountSettingDefinitionProvider.cs` registers the two Account-specific settings: `Abp.Account.IsSelfRegistrationEnabled` and `Abp.Account.EnableLocalLogin` (constants on `AccountSettingNames`). They are read at runtime via `ISettingProvider` and configurable per tenant through [Setting Management](/modules/setting-management).
 
 ## Web hosts: OpenIddict vs IdentityServer
 
-The base `Volo.Abp.Account.Web` package contains the generic Razor Pages — `Login.cshtml`, `Register.cshtml`, `ForgotPassword.cshtml`, `ResetPassword.cshtml`, `Manage.cshtml`, `SendSecurityCode.cshtml`, `VerifySecurityCode.cshtml`, and external-login callbacks. Two extension packages plug it into an OAuth2/OIDC pipeline:
+The base `Volo.Abp.Account.Web` package contains the generic Razor Pages under `Pages/Account/` — `Login.cshtml`, `Register.cshtml`, `ForgotPassword.cshtml`, `ResetPassword.cshtml`, `ResetPasswordConfirmation.cshtml`, `Manage.cshtml`, `Logout.cshtml`, `LoggedOut.cshtml`, `AccessDenied.cshtml`, `PasswordResetLinkSent.cshtml`. Two extension packages plug it into an OAuth2/OIDC pipeline:
 
 - **`Volo.Abp.Account.Web.OpenIddict`** — adds `OpenIddictSupportedLoginModel.cs` so the `Login` page interprets the OpenIddict `returnUrl` (authorize request) and issues the correct sign-in. Recommended for new applications.
 - **`Volo.Abp.Account.Web.IdentityServer`** — adds a `Consent.cshtml` page and IdentityServer4/Duende-aware login model. Use when the host runs the legacy [IdentityServer](/modules/identity-server) module.

@@ -1,7 +1,7 @@
 ---
 title: "ASP.NET Core Integration Overview and Host Bootstrap"
 sidebarTitle: "Overview"
-description: "How AbpAspNetCoreModule wires an ABP application into an ASP.NET Core host: WebApplicationBuilder bridging, ObjectAccessor wiring, and InitializeApplication."
+description: "How AbpAspNetCoreModule wires an ABP app into an ASP.NET Core host: WebApplicationBuilder bridging, ObjectAccessor wiring, and InitializeApplication."
 ---
 
 `Volo.Abp.AspNetCore` is the bridge module that takes an `IAbpApplication` and embeds it into a stock ASP.NET Core host. It is not a framework-on-top-of-a-framework — it leaves Kestrel, routing, MVC, and DI exactly where they are and instead plugs ABP's module lifecycle, virtual file system, auditing, exception handling, and object-accessor pattern into the standard `IApplicationBuilder` pipeline. Two halves matter: a module (`AbpAspNetCoreModule`) that contributes services during `ConfigureServices`, and a pair of extension methods (`AddApplicationAsync` and `InitializeApplication`) that handshake ABP's lifecycle with `WebApplicationBuilder` / `WebApplication`.

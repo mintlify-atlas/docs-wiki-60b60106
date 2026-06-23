@@ -1,5 +1,5 @@
 ---
-title: "Authorization, permissions, and policy providers"
+title: "Authorization, Permissions, and the Policy Provider"
 sidebarTitle: "Authorization"
 description: "AbpAuthorizationService, the [Authorize] interceptor, permission definition stores, and the value-provider chain that resolves grants."
 ---
@@ -39,7 +39,7 @@ public class AbpAuthorizationModule : AbpModule
 }
 ```
 
-`AuthorizationInterceptorRegistrar` (`Volo/Abp/Authorization/AuthorizationInterceptorRegistrar.cs`) decides whether a freshly-registered service needs the interceptor: any class carrying `[Authorize]` / `[AllowAnonymous]` on the class or any public method, or any implementor of `IAvoidDuplicateCrossCuttingConcerns`-eligible types like application services, gets `AuthorizationInterceptor` attached via the DynamicProxy module. `AutoAddDefinitionProviders` collects every `IPermissionDefinitionProvider` discovered by `OnRegistered` callbacks so module authors only need `class MyPermissionDefinitionProvider : PermissionDefinitionProvider`.
+`AuthorizationInterceptorRegistrar` (`Volo/Abp/Authorization/AuthorizationInterceptorRegistrar.cs`) decides whether a freshly-registered service needs the interceptor: the implementation type must not be in `DynamicProxyIgnoreTypes` and must either carry `[Authorize]` on the class itself (`type.IsDefined(typeof(AuthorizeAttribute), true)`) **or** declare any instance method (public or non-public) annotated with `[Authorize]`. `AutoAddDefinitionProviders` collects every `IPermissionDefinitionProvider` discovered by `OnRegistered` callbacks so module authors only need `class MyPermissionDefinitionProvider : PermissionDefinitionProvider`.
 
 ## End-to-end call sequence
 

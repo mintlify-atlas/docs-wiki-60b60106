@@ -1,5 +1,5 @@
 ---
-title: "Distributed caching, hybrid cache, and tenant key normalisation"
+title: "Distributed Caching, Hybrid Cache, and Key Normaliser"
 sidebarTitle: "Caching"
 description: "IDistributedCache<T>, DistributedCacheKeyNormalizer, bulk operations, unit-of-work integration, hybrid memory+Redis, and the Redis provider."
 ---
@@ -55,7 +55,7 @@ protected virtual void SetDefaultOptions()
 
 ## Key normalisation: tenant + cache name + prefix
 
-`DistributedCacheKeyNormalizer` (`DistributedCacheKeyNormalizer.cs`) is the singleton invoked for every key:
+`DistributedCacheKeyNormalizer` (`DistributedCacheKeyNormalizer.cs`, registered as `ITransientDependency`) is invoked for every key:
 
 ```csharp
 public virtual string NormalizeKey(DistributedCacheKeyNormalizeArgs args)
@@ -154,7 +154,7 @@ The hybrid cache uses an in-process memory layer for hot keys and Redis for dist
 | --- | --- |
 | `Volo/Abp/Caching/AbpCachingModule.cs` | Registers `IDistributedCache<,>` open generic, key normaliser, JSON serialiser. |
 | `Volo/Abp/Caching/DistributedCache.cs` | Typed wrapper, UoW integration, bulk-op probing. |
-| `Volo/Abp/Caching/IDistributedCache.cs` | Single- and two-generic interfaces, plus `IDistributedCache` re-export. |
+| `Volo/Abp/Caching/IDistributedCache.cs` | Single- and two-generic `IDistributedCache<TCacheItem[, TCacheKey]>` interfaces. |
 | `Volo/Abp/Caching/ICacheSupportsMultipleItems.cs` | Optional bulk-capable contract probed at runtime. |
 | `Volo/Abp/Caching/DistributedCacheKeyNormalizer.cs` | Builds `t:..,c:..,k:..` keys. |
 | `Volo/Abp/Caching/AbpDistributedCacheOptions.cs` | Global cache prefix, configurators, `HideErrors`. |

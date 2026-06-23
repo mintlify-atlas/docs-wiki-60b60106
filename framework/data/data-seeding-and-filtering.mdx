@@ -1,7 +1,7 @@
 ---
-title: "Data seeding and global data filters"
+title: "Data Seeding Contributors and Ambient Data Filters"
 sidebarTitle: "Data Seeding & Filters"
-description: "Volo.Abp.Data's IDataSeedContributor, DataSeeder, and the IDataFilter abstraction wired into EF Core's global query filters."
+description: "Volo.Abp.Data's IDataSeedContributor pipeline, the DataSeeder orchestrator, and the IDataFilter ambient state wired into EF Core global filters."
 ---
 
 `Volo.Abp.Data` is the contract layer that sits between domain code and any persistence provider. It owns two complementary concerns that show up in every ABP application: a *seeding pipeline* that contributors populate at module-initialisation time, and a *data-filter ambient state* that toggles soft-delete and multi-tenant predicates on the fly. This page walks both, then shows how the EF Core integration plugs the filter state into model-builder expressions.

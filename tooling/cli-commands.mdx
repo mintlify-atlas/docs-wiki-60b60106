@@ -30,6 +30,7 @@ All command files live under `framework/src/Volo.Abp.Cli.Core/Volo/Abp/Cli/Comma
 | `bundle` | `BundleCommand.cs` | Bundle a Blazor WebAssembly or MAUI Blazor project for production. | `-wd/--working-directory`, `-f/--force`, `-t/--project-type` (default `webassembly`) |
 | `install-libs` | `InstallLibsCommand.cs` | Resolve `abp.resourcemapping.js` and copy NPM assets into `wwwroot/libs`. | `-wd/--working-directory` |
 | `create-migration-and-run-migrator` | `CreateMigrationAndRunMigratorCommand.cs` | Add an EF Core migration and immediately run the `DbMigrator` project. | _(positional path; usage info is empty)_ |
+| `recreate-initial-migration` | `Commands/Internal/RecreateInitialMigrationCommand.cs` | Internal `[HideFromCommandList]` helper — re-creates the `InitialMigration` for every `*.EntityFrameworkCore` project under `templates/`/`test-app/`. Used by the ABP repo itself, not part of the public CLI surface. | _(no options)_ |
 
 ## Service proxies
 

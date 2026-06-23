@@ -31,7 +31,7 @@ services.OnRegistered(context =>
 
 ## Handler invocation
 
-`EventHandlerInvoker` caches one `EventHandlerInvokerCacheItem` per `(handler type, event type)` pair. The cache is built lazily by reflecting whether the handler implements `ILocalEventHandler<T>`, `IDistributedEventHandler<T>`, or both, and stores precompiled `IEventHandlerMethodExecutor` delegates. At call time it executes whichever executors are populated and throws `AbpException` if neither matched — guaranteeing that an unrelated object cannot be subscribed by accident.
+`EventHandlerInvoker` caches one `EventHandlerInvokerCacheItem` per `(handler type, event type)` pair. The cache is built lazily by reflecting whether the handler implements `ILocalEventHandler<T>`, `IDistributedEventHandler<T>`, or both, and stores `IEventHandlerMethodExecutor` instances whose `ExecutorAsync` delegate calls `HandleEventAsync` on the handler. At call time it executes whichever executors are populated and throws `AbpException` if neither matched — guaranteeing that an unrelated object cannot be subscribed by accident.
 
 Resolution uses `IocEventHandlerFactory`, which opens an `IServiceScope` per invocation so that scoped dependencies (current user, current tenant, DbContext) are isolated. The scope is disposed by `EventHandlerDisposeWrapper`.
 

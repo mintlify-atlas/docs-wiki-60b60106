@@ -1,7 +1,7 @@
 ---
 title: "Architecture — Modules, Layering & Interceptors"
 sidebarTitle: "Architecture"
-description: "How ABP composes modules, the bootstrap pipeline, the canonical layered solution and the cross-cutting interceptor pipeline."
+description: "How ABP composes modules, the AbpApplicationFactory bootstrap pipeline, the canonical layered solution and the cross-cutting interceptor stack."
 ---
 
 ABP is best understood as a **module composition engine on top of `Microsoft.Extensions.DependencyInjection`**. An application is one C# assembly whose entry point hands a single "startup module" to `AbpApplicationFactory`. ABP discovers every module transitively reachable through `[DependsOn(...)]` attributes, runs three service-configuration phases, builds a service provider, then runs three initialization phases. Once initialized the application exposes the same `IServiceProvider` your code uses everywhere — there is no parallel container, no custom DI surface. This page traces that bootstrap pipeline against the real code in `framework/src/Volo.Abp.Core/`, then explains the layered solution structure and the Castle DynamicProxy-based interceptor pipeline that implements ABP's cross-cutting concerns.
@@ -210,7 +210,7 @@ ABP wraps **every conventionally registered service** in a Castle DynamicProxy p
 | `AuthorizationInterceptor` | `AuthorizationInterceptorRegistrar` | `framework/src/Volo.Abp.Authorization/Volo/Abp/Authorization/AuthorizationInterceptor.cs` | `[Authorize]`, `[AllowAnonymous]`, declared permissions — invokes `IMethodInvocationAuthorizationService` |
 | `ValidationInterceptor` | `ValidationInterceptorRegistrar` | `framework/src/Volo.Abp.Validation/Volo/Abp/Validation/ValidationInterceptor.cs` | data-annotation / `IValidatableObject` / FluentValidation rules on method arguments |
 
-Other notable interceptors registered the same way: feature checking (`FeatureCheckerInterceptor`), global feature checking, entity history (`EntityChangeTrackingInterceptor`), and tenant-side enforcement (`MultiTenancySideInterceptor`).
+Other notable interceptors registered the same way: feature checking (`FeatureInterceptor` in `framework/src/Volo.Abp.Features/`), global feature checking (`GlobalFeatureInterceptor`), and change tracking (`ChangeTrackingInterceptor` in `framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/ChangeTracking/`).
 
 The actual proxy creation happens in either the **Autofac integration** (`framework/src/Volo.Abp.Autofac/`) — registered with `services.AddAutofacServiceProviderFactory()` — or, since ABP 8+, via the **Castle.Core** integration (`framework/src/Volo.Abp.Castle.Core/Volo/Abp/Castle/DynamicProxy/AbpAsyncDeterminationInterceptor.cs`) that adapts sync/async interceptor calls. The host opts in via `UseAutofac()` in `Program.cs`.
 
@@ -219,7 +219,7 @@ graph LR
     Call[Public call into a registered service] --> Proxy[Castle DynamicProxy]
     Proxy --> UoW[UnitOfWorkInterceptor]
     UoW --> Auth[AuthorizationInterceptor]
-    Auth --> Feat[FeatureCheckerInterceptor]
+    Auth --> Feat[FeatureInterceptor]
     Feat --> Val[ValidationInterceptor]
     Val --> Audit[AuditingInterceptor]
     Audit --> Target[Target method]

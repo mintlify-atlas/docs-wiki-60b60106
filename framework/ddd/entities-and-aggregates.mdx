@@ -4,7 +4,7 @@ sidebarTitle: "Entities & Aggregates"
 description: "Complete inheritance map of ABP entity/aggregate base classes, audited variants, concurrency stamps, extra properties and domain events."
 ---
 
-ABP ships an explicit hierarchy of entity base classes so a domain model can opt into exactly the features it needs — id type, audit columns, soft delete, optimistic concurrency, dynamic properties, domain events. Everything lives under `framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Entities/` and is built up from a single root interface, `IEntity`. This page maps the interfaces, the 14 concrete base classes (across `Entity`/`AggregateRoot`/`BasicAggregateRoot` plus audited and `WithUser` flavours), the cross-cutting properties (`ConcurrencyStamp`, `ExtraProperties`), and the `AddLocalEvent`/`AddDistributedEvent` plumbing.
+ABP ships an explicit hierarchy of entity base classes so a domain model can opt into exactly the features it needs — id type, audit columns, soft delete, optimistic concurrency, dynamic properties, domain events. Everything lives under `framework/src/Volo.Abp.Ddd.Domain/Volo/Abp/Domain/Entities/` and is built up from a single root interface, `IEntity`. This page maps the interfaces, the concrete base classes (`Entity`/`AggregateRoot`/`BasicAggregateRoot` plus audited and `WithUser` flavours), the cross-cutting properties (`ConcurrencyStamp`, `ExtraProperties`), and the `AddLocalEvent`/`AddDistributedEvent` plumbing.
 
 ## Inheritance Map
 
@@ -203,7 +203,7 @@ The `[DisableAuditing]` attribute keeps the concurrency stamp out of audit-log d
 | `CreationAuditedAggregateRootWithUser<TKey, TUser>` | ✔ | – | `CreationAuditedAggregateRoot<TKey>` | `Entities/Auditing/CreationAuditedAggregateRootWithUser.cs` |
 | `AuditedAggregateRootWithUser<TUser>` | – | `Creator`, `LastModifier` (nav) | `AuditedAggregateRoot` | `Entities/Auditing/AuditedAggregateRootWithUser.cs` |
 | `AuditedAggregateRootWithUser<TKey, TUser>` | ✔ | – | `AuditedAggregateRoot<TKey>` | `Entities/Auditing/AuditedAggregateRootWithUser.cs` |
-| `FullAuditedAggregateRootWithUser<TUser>` | – | `Creator`, `LastModifier`, `Deleter` (nav) | `FullAuditedAggregateRoot` | `Entities/Auditing/FullAuditedAggregateRoot.cs` |
+| `FullAuditedAggregateRootWithUser<TUser>` | – | `Creator`, `LastModifier`, `Deleter` (nav) | `FullAuditedAggregateRoot` | `Entities/Auditing/FullAuditedAggregateRootWithUser.cs` |
 | `FullAuditedAggregateRootWithUser<TKey, TUser>` | ✔ | – | `FullAuditedAggregateRoot<TKey>` | `Entities/Auditing/FullAuditedAggregateRootWithUser.cs` |
 
 ### Audit Marker Interfaces

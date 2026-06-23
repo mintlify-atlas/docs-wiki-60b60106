@@ -119,7 +119,7 @@ foreach (var jobInfo in waitingJobs)
 
 ## BackgroundJobExecuter
 
-`BackgroundJobExecuter` (`Volo.Abp.BackgroundJobs.Abstractions/Volo/Abp/BackgroundJobs/BackgroundJobExecuter.cs`) resolves the job from DI, switches `ICurrentTenant` based on `IMultiTenantBackgroundJobArgs`, and invokes either the sync `Execute` or async `ExecuteAsync` method via reflection. If neither method exists it throws `AbpException`.
+`BackgroundJobExecuter` (`Volo.Abp.BackgroundJobs.Abstractions/Volo/Abp/BackgroundJobs/BackgroundJobExecuter.cs`) resolves the job from DI, switches `ICurrentTenant` to the args' `TenantId` if the args object implements `IMultiTenant`, and invokes either the sync `Execute` or async `ExecuteAsync` method via reflection. If neither method exists it throws `AbpException`; any thrown error is wrapped in `BackgroundJobExecutionException` after notifying `IExceptionNotifier`.
 
 ## IBackgroundJobSerializer
 

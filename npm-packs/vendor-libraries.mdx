@@ -57,7 +57,7 @@ Each row below was generated from
 | --- | --- | --- |
 | `codemirror` | `codemirror ^6.0.2` + `@codemirror/{state,view,lang-css,lang-javascript}` | Embedded code editor inside the Markdown editor and the LeptonX admin. |
 | `markdown-it` | `markdown-it ^14.1.0` | Markdown renderer used by the CMS Kit Markdown editor. |
-| `tui-editor` | `@abp/jquery` + `@abp/prismjs` (Toast UI Editor) | Rich Markdown WYSIWYG used by CMS Kit and the Blogging module. |
+| `tui-editor` | pre-built Toast UI Editor (vendored in `src/`); deps `@abp/jquery` + `@abp/prismjs` | Rich Markdown WYSIWYG used by CMS Kit and the Blogging module. |
 | `highlight.js` | `@highlightjs/cdn-assets ~11.11.1` | Syntax highlighting in the **public** CMS Kit pages. |
 | `prismjs` | `prismjs ^1.30.0` (+ `@abp/clipboard`) | Syntax highlighting in admin tooling, docs site, and the Blogging module. |
 | `anchor-js` | `anchor-js ^5.0.0` | Adds anchor links to headings (used by docs and blog pages). |
@@ -71,7 +71,7 @@ Each row below was generated from
 | `uppy` | `uppy ^5.1.2` | File-upload widget for the CMS Kit media library. |
 | `cropperjs` | `cropperjs ^1.6.2` | Image-crop dialog when uploading profile pictures. |
 | `owl.carousel` | `owl.carousel ^2.3.4` | Homepage carousels in the Blogging module. |
-| `qrcode` | (no upstream dep) | QR-code rendering helper for 2FA setup. |
+| `qrcode` | pre-built vendor script in `src/`; only `@abp/core` as dep | QR-code rendering helper for 2FA setup. |
 | `star-rating-svg` | `star-rating-svg ^3.5.0` | Star-rating control used by CMS Kit ratings. |
 | `chart.js` | `chart.js ^4.5.0` | Charts on the host / tenant dashboards. |
 | `zxcvbn` | `zxcvbn ^4.4.2` | Password-strength meter on registration / change-password forms. |

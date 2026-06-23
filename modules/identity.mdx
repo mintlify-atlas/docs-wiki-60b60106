@@ -33,7 +33,7 @@ All aggregates live in `modules/identity/src/Volo.Abp.Identity.Domain/Volo/Abp/I
 | Aggregate | File | Notes |
 | --- | --- | --- |
 | `IdentityUser` | `IdentityUser.cs` | `FullAuditedAggregateRoot<Guid>`, implements `IUser`, `IHasEntityVersion`; carries `Roles`, `Claims`, `Logins`, `Tokens`, `OrganizationUnits`, `Passkeys`, password history |
-| `IdentityRole` | `IdentityRole.cs` | `FullAuditedAggregateRoot<Guid>`, `IMultiTenant`; flags `IsDefault`, `IsStatic`, `IsPublic` |
+| `IdentityRole` | `IdentityRole.cs` | `AggregateRoot<Guid>`, `IMultiTenant`, `IHasEntityVersion`; flags `IsDefault`, `IsStatic`, `IsPublic` |
 | `OrganizationUnit` | `OrganizationUnit.cs` | Tree node keyed by hierarchical `Code` (e.g. `"00001.00042.00005"`) |
 | `IdentityClaimType` | `IdentityClaimType.cs` | Custom claim definitions with regex + value type |
 | `IdentitySecurityLog` | `IdentitySecurityLog.cs` | Persisted security events (login success/failure, password change, …) |

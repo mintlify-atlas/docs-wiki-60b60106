@@ -35,7 +35,7 @@ page-parts.component.ts
 
 ## chart.js
 
-`chart.js/src/chart.component.ts` is a thin Angular wrapper that takes a `ChartConfiguration` and renders into a `<canvas>` via the Chart.js library (vendored by `@abp/chart.js`). `widget-utils.ts` provides helpers for the widget system used by dashboard modules.
+`chart.js/src/chart.component.ts` is a thin Angular wrapper that takes a `ChartConfiguration` and renders into a `<canvas>` via Chart.js (pulled in as a direct `chart.js` npm dependency of `@abp/ng.components` — separate from the MVC-side `@abp/chart.js` browser asset pack).
 
 ## extensible (the "data-driven" stack)
 
